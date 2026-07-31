@@ -158,4 +158,14 @@ public sealed class DiscoveryDocument
     [JsonPropertyName("backchannel_user_code_parameter_supported")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool BackchannelUserCodeParameterSupported { get; init; }
+
+    // ── Phase 8 ────────────────────────────────────────────────────────────────
+
+    [JsonPropertyName("federation_registration_endpoint")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FederationRegistrationEndpoint { get; init; }
+
+    [JsonPropertyName("client_registration_types_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? ClientRegistrationTypesSupported { get; init; }
 }

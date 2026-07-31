@@ -12,6 +12,7 @@ using NetOidc.Provider.Dcr;
 using NetOidc.Provider.Device;
 using NetOidc.Provider.Discovery;
 using NetOidc.Provider.DPoP;
+using NetOidc.Provider.Federation;
 using NetOidc.Provider.Interaction;
 using NetOidc.Provider.Jose;
 using NetOidc.Provider.Logout;
@@ -19,6 +20,7 @@ using NetOidc.Provider.Par;
 using NetOidc.Provider.Session;
 using NetOidc.Provider.Token;
 using NetOidc.Provider.UserInfo;
+using NetOidc.Provider.Vci;
 using OidcSession = NetOidc.Provider.Abstractions.Models.Session;
 
 namespace NetOidc.Provider.Http;
@@ -95,6 +97,52 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<DeviceVerificationEndpointHandler>();
         services.TryAddSingleton<CibaEndpointHandler>();
 
+        // Phase 8 — Federation
+        services.TryAddSingleton<FederationService>();
+        services.TryAddSingleton<FederationEndpointHandler>();
+
+        // Phase 8 — VCI
+        services.TryAddSingleton<VciService>();
+        services.TryAddSingleton<VciEndpointHandler>();
+
+        // Phase 8 — Client ID Metadata Document
+        services.TryAddSingleton<ClientIdMetadataEndpointHandler>();
+
+        // Phase 8 — CORS
+        services.AddCors();
+        services.AddSingleton<Microsoft.Extensions.Options.IConfigureOptions<
+            Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions>, NetOidcCorsSetup>();
+
         return new NetOidcBuilder(services);
+    }
+}
+
+/// <summary>
+/// Registers the "NetOidcCors" CORS policy from <see cref="ProviderOptions"/> at startup.
+/// Callers must add <c>app.UseCors()</c> to activate the middleware.
+/// </summary>
+internal sealed class NetOidcCorsSetup
+    : Microsoft.Extensions.Options.IConfigureOptions<Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions>
+{
+    private readonly IOptions<ProviderOptions> _providerOptions;
+
+    public NetOidcCorsSetup(IOptions<ProviderOptions> providerOptions)
+        => _providerOptions = providerOptions;
+
+    public void Configure(Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions options)
+    {
+        var opts = _providerOptions.Value;
+        if (!opts.CorsEnabled)
+            return;
+
+        options.AddPolicy("NetOidcCors", policy =>
+        {
+            if (opts.CorsAllowedOrigins.Count == 0)
+                policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+            else
+                policy.WithOrigins([.. opts.CorsAllowedOrigins])
+                      .AllowAnyMethod()
+                      .AllowAnyHeader();
+        });
     }
 }

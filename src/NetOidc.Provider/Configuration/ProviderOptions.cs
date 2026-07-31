@@ -264,4 +264,75 @@ public sealed class ProviderOptions
     /// configuration before the first request is served.
     /// </summary>
     public bool FapiProfileValidationEnabled { get; set; } = false;
+
+    // ── Phase 8 — OpenID Federation 1.1 ──────────────────────────────────────
+
+    /// <summary>
+    /// When true, the provider publishes its entity configuration at
+    /// <c>/.well-known/openid-federation</c> (OpenID Federation 1.1 §6).
+    /// </summary>
+    public bool FederationEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Authority hints: entity identifiers of trust anchors or intermediate entities
+    /// that know about this OP. Advertised in the entity configuration.
+    /// </summary>
+    public IList<string> FederationAuthorityHints { get; set; } = [];
+
+    /// <summary>Lifetime in seconds of entity statements (default 86400 = 24 h).</summary>
+    public int FederationEntityStatementLifetimeSeconds { get; set; } = 86400;
+
+    // ── Phase 8 — OpenID for Verifiable Credential Issuance 1.0 ──────────────
+
+    /// <summary>
+    /// When true, the <c>/.well-known/openid-credential-issuer</c> metadata endpoint,
+    /// credential endpoint, and nonce endpoint are active.
+    /// </summary>
+    public bool VciEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Credential issuer entity identifier URL. Defaults to <see cref="Issuer"/> when empty.
+    /// Override when the credential issuer is a distinct entity from the authorization server.
+    /// </summary>
+    public string VciCredentialIssuer { get; set; } = string.Empty;
+
+    public string VciCredentialEndpoint { get; set; } = "/connect/credential";
+
+    /// <summary>c_nonce endpoint path (OID4VCI 1.0 §8.2).</summary>
+    public string VciNonceEndpoint { get; set; } = "/connect/nonce";
+
+    /// <summary>Lifetime in seconds of issued c_nonce values (default 300 s).</summary>
+    public int VciNonceLifetimeSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Credential types the issuer supports, keyed by <c>credential_configuration_id</c>.
+    /// Advertised in the <c>credential_configurations_supported</c> map of the issuer metadata.
+    /// </summary>
+    public IList<Vci.CredentialConfiguration> VciCredentialConfigurations { get; set; } = [];
+
+    /// <summary>
+    /// Hook invoked to issue a verifiable credential.
+    /// Arguments: (subject, credentialConfigurationId, cancellationToken).
+    /// Must return the credential as a string (JWT-VC, SD-JWT, etc.).
+    /// </summary>
+    public Func<string, string, CancellationToken, Task<string>>? IssueCredential { get; set; }
+
+    // ── Phase 8 — CORS ─────────────────────────────────────────────────────────
+
+    /// <summary>When true, CORS headers are applied to OIDC provider endpoints.</summary>
+    public bool CorsEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Allowed CORS origins. An empty list (while <see cref="CorsEnabled"/> is true)
+    /// allows all origins (<c>*</c>).
+    /// </summary>
+    public IList<string> CorsAllowedOrigins { get; set; } = [];
+
+    // ── Phase 8 — Client ID Metadata Document (draft) ─────────────────────────
+
+    /// <summary>
+    /// When true, a client whose <c>client_id</c> is a URL may omit pre-registration;
+    /// the provider fetches the Client ID Metadata Document from that URL on first use.
+    /// </summary>
+    public bool ClientIdMetadataDocumentEnabled { get; set; } = false;
 }

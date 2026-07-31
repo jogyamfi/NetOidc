@@ -55,4 +55,15 @@ public sealed record OAuthError(
 
     /// <summary>CIBA: the authorization request was denied by the user or timed out.</summary>
     public static OAuthError AccessDeniedCiba(string? description = null) => new("access_denied", description);
+
+    // ── Phase 8 — VCI (OID4VCI 1.0) ──────────────────────────────────────────
+
+    /// <summary>OID4VCI: the presented access token is invalid or expired.</summary>
+    public static OAuthError InvalidToken(string? description = null) => new("invalid_token", description);
+
+    /// <summary>OID4VCI: the credential proof (proof JWT) is invalid.</summary>
+    public static OAuthError InvalidProof(string? description = null) => new("invalid_proof", description);
+
+    /// <summary>OID4VCI: the c_nonce is invalid, expired, or already consumed.</summary>
+    public static OAuthError InvalidNonce(string? description = null) => new("invalid_nonce", description);
 }

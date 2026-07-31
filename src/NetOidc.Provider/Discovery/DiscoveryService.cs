@@ -148,6 +148,13 @@ public sealed class DiscoveryService
                    "ES256", "ES384", "ES512"]
                 : null,
             BackchannelUserCodeParameterSupported = opts.CibaEnabled,
+
+            // ── Phase 8 ──────────────────────────────────────────────────────
+            ClientRegistrationTypesSupported = opts.FederationEnabled
+                ? (opts.DcrEnabled ? ["automatic", "explicit"] : ["explicit"])
+                : null,
+            FederationRegistrationEndpoint = opts.FederationEnabled && opts.DcrEnabled
+                ? Abs(opts.RegistrationEndpoint) : null,
         };
     }
 
