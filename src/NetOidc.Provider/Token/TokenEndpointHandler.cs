@@ -59,6 +59,7 @@ public sealed class TokenEndpointHandler
         {
             "authorization_code" => await HandleAuthorizationCodeAsync(form, client, ct),
             "refresh_token" => await HandleRefreshTokenAsync(form, client, ct),
+            "client_credentials" => await HandleClientCredentialsAsync(form, client, ct),
             _ => TokenError(OAuthError.UnsupportedGrantType(), 400),
         };
     }
@@ -135,7 +136,8 @@ public sealed class TokenEndpointHandler
         string? idToken = null;
         if (authCode.Scopes.Contains("openid"))
             idToken = _tokenFactory.CreateIdToken(
-                authCode.Subject, client.ClientId, authCode.Nonce, authCode.AuthTime);
+                authCode.Subject, client.ClientId, authCode.Nonce, authCode.AuthTime,
+                acr: authCode.Acr, amr: authCode.Amr);
 
         return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshTokenValue, idToken);
     }
@@ -190,6 +192,48 @@ public sealed class TokenEndpointHandler
             TimeSpan.FromSeconds(opts.RefreshTokenLifetimeSeconds), ct);
 
         return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, newRtId, idToken: null);
+    }
+
+    // ── client_credentials grant ───────────────────────────────────────────────
+
+    private async Task<IResult> HandleClientCredentialsAsync(
+        IFormCollection form, Client client, CancellationToken ct)
+    {
+        if (!client.AllowedGrantTypes.Contains("client_credentials"))
+            return TokenError(OAuthError.UnauthorizedClient("client_credentials not allowed for this client"), 400);
+
+        var scopeStr = form["scope"].ToString();
+        var requestedScopes = string.IsNullOrEmpty(scopeStr)
+            ? client.AllowedScopes.ToList()
+            : scopeStr.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+        var registeredScopes = _options.Value.Scopes.Select(s => s.Name).ToHashSet();
+        var unknownScopes = requestedScopes.Where(s => !registeredScopes.Contains(s)).ToList();
+        if (unknownScopes.Count > 0)
+            return TokenError(OAuthError.InvalidScope($"Unknown scope(s): {string.Join(" ", unknownScopes)}"), 400);
+
+        var disallowedScopes = requestedScopes.Where(s => !client.AllowedScopes.Contains(s)).ToList();
+        if (disallowedScopes.Count > 0)
+            return TokenError(OAuthError.InvalidScope($"Client not authorized for scope(s): {string.Join(" ", disallowedScopes)}"), 400);
+
+        var opts = _options.Value;
+        var tokenId = GenerateId();
+        // client_credentials has no resource-owner subject (RFC 6749 §4.4)
+        var atValue = _tokenFactory.CreateAccessToken(tokenId, subject: null, client.ClientId, requestedScopes);
+
+        var at = new AccessToken
+        {
+            TokenId = tokenId,
+            GrantId = tokenId,
+            ClientId = client.ClientId,
+            Subject = null,
+            Scopes = requestedScopes,
+            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
+        };
+        await _accessTokenStore.StoreAsync(tokenId, at,
+            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+
+        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshToken: null, idToken: null);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

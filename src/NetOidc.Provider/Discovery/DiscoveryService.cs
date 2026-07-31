@@ -22,21 +22,48 @@ public sealed class DiscoveryService
         var issuer = opts.Issuer.TrimEnd('/');
         string Abs(string path) => issuer + path;
 
+        // Advertise subject_types_supported based on configuration
+        var subjectTypes = opts.SubjectType == "pairwise"
+            ? new List<string> { "pairwise", "public" }
+            : new List<string> { "public" };
+
         return new DiscoveryDocument
         {
             Issuer = issuer,
             AuthorizationEndpoint = Abs(opts.AuthorizationEndpoint),
             TokenEndpoint = Abs(opts.TokenEndpoint),
             UserInfoEndpoint = Abs(opts.UserInfoEndpoint),
+            IntrospectionEndpoint = Abs(opts.IntrospectionEndpoint),
+            RevocationEndpoint = Abs(opts.RevocationEndpoint),
             JwksUri = Abs(opts.JwksEndpoint),
-            ResponseTypesSupported = ["code"],
-            GrantTypesSupported = ["authorization_code", "refresh_token"],
-            SubjectTypesSupported = ["public"],
+            ResponseTypesSupported =
+            [
+                "code",
+                "token",
+                "id_token",
+                "code token",
+                "code id_token",
+                "code id_token token",
+                "id_token token",
+            ],
+            GrantTypesSupported =
+            [
+                "authorization_code",
+                "implicit",
+                "hybrid",
+                "client_credentials",
+                "refresh_token",
+            ],
+            SubjectTypesSupported = subjectTypes,
             IdTokenSigningAlgValuesSupported = ["RS256"],
             TokenEndpointAuthMethodsSupported = ["client_secret_basic", "client_secret_post"],
+            IntrospectionEndpointAuthMethodsSupported = ["client_secret_basic", "client_secret_post"],
+            RevocationEndpointAuthMethodsSupported = ["client_secret_basic", "client_secret_post"],
             CodeChallengeMethodsSupported = ["S256", "plain"],
             ScopesSupported = opts.Scopes.Select(s => s.Name).ToList(),
             ResponseModesSupported = ["query", "fragment", "form_post"],
+            ClaimsParameterSupported = true,
+            AuthorizationResponseIssParameterSupported = opts.IssuerIdentificationEnabled,
         };
     }
 

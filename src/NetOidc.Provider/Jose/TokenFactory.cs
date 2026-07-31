@@ -20,11 +20,20 @@ public sealed class TokenFactory
     }
 
     /// <summary>Issues a JWT access token per RFC 9068 (typ: at+JWT).</summary>
+    /// <param name="subject">Resource owner subject, or <c>null</c> for client_credentials grants.</param>
     public string CreateAccessToken(
-        string tokenId, string subject, string clientId, IReadOnlyList<string> scopes)
+        string tokenId, string? subject, string clientId, IReadOnlyList<string> scopes)
     {
         var opts = _options.Value;
         var now = DateTime.UtcNow;
+        var claims = new Dictionary<string, object>
+        {
+            ["client_id"] = clientId,
+            ["jti"] = tokenId,
+            ["scope"] = string.Join(" ", scopes),
+        };
+        if (subject is not null) claims["sub"] = subject;
+
         var descriptor = new SecurityTokenDescriptor
         {
             Issuer = opts.Issuer,
@@ -33,13 +42,7 @@ public sealed class TokenFactory
             Expires = now.AddSeconds(opts.AccessTokenLifetimeSeconds),
             SigningCredentials = _keyProvider.GetSigningCredentials(),
             TokenType = "at+JWT",
-            Claims = new Dictionary<string, object>
-            {
-                ["sub"] = subject,
-                ["client_id"] = clientId,
-                ["jti"] = tokenId,
-                ["scope"] = string.Join(" ", scopes),
-            },
+            Claims = claims,
         };
         return _handler.CreateToken(descriptor);
     }
@@ -50,6 +53,8 @@ public sealed class TokenFactory
         string clientId,
         string? nonce,
         DateTimeOffset authTime,
+        string? acr = null,
+        IReadOnlyList<string>? amr = null,
         IReadOnlyDictionary<string, object>? additionalClaims = null)
     {
         var opts = _options.Value;
@@ -60,6 +65,8 @@ public sealed class TokenFactory
             ["auth_time"] = authTime.ToUnixTimeSeconds(),
         };
         if (nonce is not null) claims["nonce"] = nonce;
+        if (acr is not null) claims["acr"] = acr;
+        if (amr is not null && amr.Count > 0) claims["amr"] = amr;
         if (additionalClaims is not null)
             foreach (var kv in additionalClaims)
                 claims[kv.Key] = kv.Value;

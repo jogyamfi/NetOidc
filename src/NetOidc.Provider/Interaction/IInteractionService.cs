@@ -7,6 +7,10 @@ public sealed class InteractionResult
 {
     public required string Subject { get; init; }
     public required IReadOnlyList<string> GrantedScopes { get; init; }
+    /// <summary>Authentication Context Reference (e.g. "urn:mace:incommon:iap:silver").</summary>
+    public string? Acr { get; init; }
+    /// <summary>Authentication Methods References (e.g. ["pwd", "otp"]).</summary>
+    public IReadOnlyList<string>? Amr { get; init; }
 }
 
 /// <summary>

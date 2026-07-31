@@ -4,6 +4,7 @@ using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Adapters;
 using NetOidc.Provider.Authorization;
+using NetOidc.Provider.Claims;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Discovery;
 using NetOidc.Provider.Interaction;
@@ -42,10 +43,15 @@ public static class ServiceCollectionExtensions
         // Interaction
         services.TryAddSingleton<IInteractionService, DefaultInteractionService>();
 
+        // Claims
+        services.TryAddSingleton<SubjectIdentifierService>();
+
         // Endpoint handlers
         services.TryAddSingleton<AuthorizationEndpointHandler>();
         services.TryAddSingleton<TokenEndpointHandler>();
         services.TryAddSingleton<UserInfoEndpointHandler>();
+        services.TryAddSingleton<IntrospectionEndpointHandler>();
+        services.TryAddSingleton<RevocationEndpointHandler>();
 
         return new NetOidcBuilder(services);
     }

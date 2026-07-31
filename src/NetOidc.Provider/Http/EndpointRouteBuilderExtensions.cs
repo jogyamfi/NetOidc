@@ -9,6 +9,7 @@ using NetOidc.Provider.Discovery;
 using NetOidc.Provider.Token;
 using NetOidc.Provider.UserInfo;
 
+
 namespace NetOidc.Provider.Http;
 
 public static class EndpointRouteBuilderExtensions
@@ -41,6 +42,16 @@ public static class EndpointRouteBuilderExtensions
         // UserInfo (GET + POST per OIDC Core §5.3)
         endpoints.MapMethods(opts.UserInfoEndpoint, ["GET", "POST"],
             (UserInfoEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
+                h.HandleAsync(ctx, ct));
+
+        // Introspection (RFC 7662)
+        endpoints.MapPost(opts.IntrospectionEndpoint,
+            (IntrospectionEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
+                h.HandleAsync(ctx, ct));
+
+        // Revocation (RFC 7009)
+        endpoints.MapPost(opts.RevocationEndpoint,
+            (RevocationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct));
 
         return endpoints;

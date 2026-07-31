@@ -40,6 +40,33 @@ public sealed class ProviderOptions
     /// <summary>Issue refresh tokens alongside access tokens for authorization_code grants.</summary>
     public bool IssueRefreshTokens { get; set; } = true;
 
+    // -- Subject identifier types (OIDC Core §8) --
+
+    /// <summary>"public" (default) or "pairwise" (OIDC Core §8.1).</summary>
+    public string SubjectType { get; set; } = "public";
+
+    /// <summary>
+    /// Secret used to compute pairwise sub identifiers. Required when <see cref="SubjectType"/>
+    /// is "pairwise". Defaults to a value derived from <see cref="Issuer"/> if unset.
+    /// </summary>
+    public string? PairwiseSalt { get; set; }
+
+    // -- RFC 9207 Authorization Server Issuer Identification --
+
+    /// <summary>
+    /// When true, the <c>iss</c> parameter is added to every authorization response
+    /// (RFC 9207). Enabled by default.
+    /// </summary>
+    public bool IssuerIdentificationEnabled { get; set; } = true;
+
+    // -- RFC 8252 OAuth 2.0 for Native Apps --
+
+    /// <summary>
+    /// When true, loopback redirect URIs (localhost/127.0.0.1/::1) are matched by
+    /// host+path only, ignoring the port (RFC 8252 §7.3). Enabled by default.
+    /// </summary>
+    public bool AllowNativeAppRedirects { get; set; } = true;
+
     // -- Claim sourcing --
 
     /// <summary>
