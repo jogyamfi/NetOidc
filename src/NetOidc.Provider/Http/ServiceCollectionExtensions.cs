@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Adapters;
@@ -33,6 +34,9 @@ public static class ServiceCollectionExtensions
         Action<ProviderOptions> configure)
     {
         services.Configure(configure);
+
+        // Phase 7: FAPI profile validation (runs on first options access / startup).
+        services.TryAddSingleton<IValidateOptions<ProviderOptions>, FapiProfileValidator>();
 
         // Storage adapters — in-memory defaults; callers can override with TryAdd.
         services.TryAddSingleton<IAdapter<Grant>, InMemoryAdapter<Grant>>();

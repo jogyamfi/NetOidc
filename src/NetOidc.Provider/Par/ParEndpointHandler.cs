@@ -66,6 +66,20 @@ public sealed class ParEndpointHandler
         if (!string.IsNullOrEmpty(redirectUri) && !client.RedirectUris.Contains(redirectUri))
             return ParError(OAuthError.InvalidRequest("redirect_uri not registered for this client"), 400);
 
+        // ── FAPI 1.0 PAR constraints (Phase 7) ───────────────────────────────
+
+        if (opts.FapiProfile == Configuration.FapiProfile.Fapi1Advanced)
+        {
+            // Public clients are not allowed to push authorization requests (FAPI 1.0 §5.2.2).
+            if (client.TokenEndpointAuthMethod == "none")
+                return ParError(OAuthError.InvalidClient("FAPI 1.0: public clients cannot use PAR"), 400);
+
+            // code_challenge is required at PAR time (FAPI 1.0 §5.2.3.1).
+            var codeChallenge = form["code_challenge"].ToString();
+            if (string.IsNullOrEmpty(codeChallenge))
+                return ParError(OAuthError.InvalidRequest("FAPI 1.0: code_challenge is required in PAR"), 400);
+        }
+
         // Store all form parameters as JSON
         var paramsDict = form.Keys
             .Where(k => k != "client_secret")   // never persist credentials

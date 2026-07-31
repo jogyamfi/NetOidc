@@ -185,6 +185,48 @@ public sealed class AuthorizationEndpointHandler
             }
         }
 
+        // ── FAPI Profile runtime enforcement (Phase 7) ────────────────────────
+
+        if (opts.FapiProfile == FapiProfile.Fapi1Advanced)
+        {
+            // Only response_type=code or code+id_token are permitted (FAPI 1.0 §5.2.2).
+            if (!isCode && normalizedResponseType != "code id_token")
+                return SendError(redirectUri, state, baseMode,
+                    OAuthError.InvalidRequest("FAPI 1.0: response_type must be 'code' or 'code id_token'"));
+
+            // JARM (response_mode=jwt) is required when response_type is code-only.
+            if (isCode && !useJarm)
+                return SendError(redirectUri, state, baseMode,
+                    OAuthError.InvalidRequest("FAPI 1.0: response_mode=jwt is required when response_type is 'code'"));
+
+            // nonce is required for every OpenID (§5.2.3.2) request.
+            if (requestedScopes.Contains("openid") && string.IsNullOrEmpty(nonce))
+                return SendError(redirectUri, state, baseMode,
+                    OAuthError.InvalidRequest("FAPI 1.0: nonce is required for OpenID requests"));
+        }
+
+        var isFapi2Profile = opts.FapiProfile is FapiProfile.Fapi2Security
+            or FapiProfile.Fapi2MessageSigning
+            or FapiProfile.FapiCiba;
+
+        if (isFapi2Profile)
+        {
+            // Only response_type=code is permitted (FAPI 2.0 §5.3.1).
+            if (!isCode)
+                return SendError(redirectUri, state, baseMode,
+                    OAuthError.InvalidRequest("FAPI 2.0: response_type must be 'code'"));
+
+            // PKCE with S256 is mandatory (FAPI 2.0 §5.3.1).
+            if (string.IsNullOrEmpty(codeChallenge))
+                return SendError(redirectUri, state, baseMode,
+                    OAuthError.InvalidRequest("FAPI 2.0: code_challenge is required (PKCE S256)"));
+
+            if (!string.IsNullOrEmpty(codeChallengeMethod) &&
+                !codeChallengeMethod.Equals("S256", StringComparison.OrdinalIgnoreCase))
+                return SendError(redirectUri, state, baseMode,
+                    OAuthError.InvalidRequest("FAPI 2.0: only code_challenge_method=S256 is allowed"));
+        }
+
         // ── Resource Indicators (RFC 8707) ────────────────────────────────────
 
         var resources = ParseResourceIndicators(resourceParam, opts);

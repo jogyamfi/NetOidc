@@ -28,6 +28,31 @@ internal static class ClientAuthenticator
         ProviderOptions opts,
         CancellationToken ct)
     {
+        var client = await AuthenticateCoreAsync(context, form, clientStore, opts, ct);
+        if (client is null) return null;
+
+        // FAPI 2.0: only private_key_jwt and tls_client_auth are allowed (§5.3.1).
+        var isFapi2 = opts.FapiProfile is FapiProfile.Fapi2Security
+            or FapiProfile.Fapi2MessageSigning
+            or FapiProfile.FapiCiba;
+        if (isFapi2 && client.TokenEndpointAuthMethod is not ("private_key_jwt" or "tls_client_auth"))
+            return null;
+
+        // FAPI 1.0 Advanced: client_secret_basic and client_secret_post are not allowed (§5.2.2).
+        if (opts.FapiProfile == FapiProfile.Fapi1Advanced &&
+            client.TokenEndpointAuthMethod is "client_secret_basic" or "client_secret_post")
+            return null;
+
+        return client;
+    }
+
+    private static async Task<Client?> AuthenticateCoreAsync(
+        HttpContext context,
+        IFormCollection form,
+        IClientStore clientStore,
+        ProviderOptions opts,
+        CancellationToken ct)
+    {
         // ── 1. HTTP Basic → client_secret_basic ────────────────────────────
         var (basicId, basicSecret) = TryParseBasicAuth(context);
         if (basicId is not null)
@@ -45,7 +70,11 @@ internal static class ClientAuthenticator
 
         // ── 2. JWT client assertion (private_key_jwt / client_secret_jwt) ──
         if (assertionType == JwtBearerAssertionType && !string.IsNullOrEmpty(assertion))
-            return await AuthenticateJwtAssertionAsync(assertion, form, clientStore, opts, ct);
+        {
+            // Per RFC 9126 §2.1 the PAR endpoint URL is also a valid aud in PAR assertions.
+            var endpointUrl = opts.Issuer.TrimEnd('/') + context.Request.Path.Value;
+            return await AuthenticateJwtAssertionAsync(assertion, form, clientStore, opts, endpointUrl, ct);
+        }
 
         // ── 3. mTLS (tls_client_auth / self_signed_tls_client_auth) ────────
         if (opts.MtlsEnabled)
@@ -94,6 +123,7 @@ internal static class ClientAuthenticator
         IFormCollection form,
         IClientStore clientStore,
         ProviderOptions opts,
+        string currentEndpointUrl,
         CancellationToken ct)
     {
         // Read without validating to identify the client from iss/sub.
@@ -110,10 +140,13 @@ internal static class ClientAuthenticator
         var client = await clientStore.FindClientAsync(clientId, ct);
         if (client is null) return null;
 
-        // aud must be the token endpoint URL or issuer.
+        // aud must be the token endpoint URL, issuer, or the specific endpoint being called.
         var issuer = opts.Issuer.TrimEnd('/');
         var tokenEndpoint = issuer + opts.TokenEndpoint;
-        var validAudiences = new[] { tokenEndpoint, issuer };
+        var validAudiences = new HashSet<string>(StringComparer.Ordinal)
+        {
+            tokenEndpoint, issuer, currentEndpointUrl,
+        };
 
         switch (client.TokenEndpointAuthMethod)
         {

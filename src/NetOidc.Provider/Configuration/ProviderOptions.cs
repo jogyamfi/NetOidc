@@ -249,4 +249,19 @@ public sealed class ProviderOptions
     /// </summary>
     public Func<Abstractions.Models.BackchannelAuthenticationRequest, CancellationToken, Task>?
         ProcessBackchannelAuthenticationRequest { get; set; }
+
+    // ── Phase 7 — FAPI Profiles ───────────────────────────────────────────────
+
+    /// <summary>
+    /// FAPI compliance profile to enforce at runtime (response_type, auth method,
+    /// PKCE, PAR, JARM constraints). Defaults to <see cref="FapiProfile.None"/>.
+    /// </summary>
+    public FapiProfile FapiProfile { get; set; } = FapiProfile.None;
+
+    /// <summary>
+    /// When true, the provider validates the full <see cref="ProviderOptions"/> graph
+    /// against the selected <see cref="FapiProfile"/> at startup and rejects invalid
+    /// configuration before the first request is served.
+    /// </summary>
+    public bool FapiProfileValidationEnabled { get; set; } = false;
 }
