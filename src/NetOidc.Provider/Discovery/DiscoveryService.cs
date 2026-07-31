@@ -49,6 +49,20 @@ public sealed class DiscoveryService
         if (opts.JwtBearerGrantEnabled)
             grantTypes.Add("urn:ietf:params:oauth:grant-type:jwt-bearer");
 
+        // ── Phase 5: build token_endpoint_auth_methods_supported ────────────────
+        var tokenAuthMethods = new List<string>
+        {
+            "client_secret_basic",
+            "client_secret_post",
+            "private_key_jwt",
+            "client_secret_jwt",
+        };
+        if (opts.MtlsEnabled)
+        {
+            tokenAuthMethods.Add("tls_client_auth");
+            tokenAuthMethods.Add("self_signed_tls_client_auth");
+        }
+
         return new DiscoveryDocument
         {
             Issuer = issuer,
@@ -71,9 +85,9 @@ public sealed class DiscoveryService
             GrantTypesSupported = grantTypes,
             SubjectTypesSupported = subjectTypes,
             IdTokenSigningAlgValuesSupported = ["RS256"],
-            TokenEndpointAuthMethodsSupported = ["client_secret_basic", "client_secret_post"],
-            IntrospectionEndpointAuthMethodsSupported = ["client_secret_basic", "client_secret_post"],
-            RevocationEndpointAuthMethodsSupported = ["client_secret_basic", "client_secret_post"],
+            TokenEndpointAuthMethodsSupported = tokenAuthMethods,
+            IntrospectionEndpointAuthMethodsSupported = tokenAuthMethods,
+            RevocationEndpointAuthMethodsSupported = tokenAuthMethods,
             CodeChallengeMethodsSupported = ["S256", "plain"],
             ScopesSupported = opts.Scopes.Select(s => s.Name).ToList(),
             ResponseModesSupported = responseModes,
@@ -110,6 +124,13 @@ public sealed class DiscoveryService
                 ["RSA-OAEP", "RSA-OAEP-256"],
             IdTokenEncryptionEncValuesSupported =
                 ["A128CBC-HS256", "A256CBC-HS512", "A128GCM", "A256GCM"],
+
+            // ── Phase 5 ──────────────────────────────────────────────────────
+            DPoPSigningAlgValuesSupported = opts.DPoPEnabled
+                ? ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
+                   "ES256", "ES384", "ES512"]
+                : null,
+            TlsClientCertificateBoundAccessTokens = opts.MtlsEnabled,
         };
     }
 

@@ -33,4 +33,12 @@ public sealed record OAuthError(
 
     /// <summary>RFC 8693: the type identifier of the subject_token is not supported.</summary>
     public static OAuthError InvalidTokenType(string? description = null) => new("invalid_token_type", description);
+
+    // ── Phase 5 ───────────────────────────────────────────────────────────────
+
+    /// <summary>RFC 9449: the DPoP proof is missing, malformed, or fails validation.</summary>
+    public static OAuthError InvalidDPoPProof(string? description = null) => new("invalid_dpop_proof", description);
+
+    /// <summary>RFC 9449 §8: the server requires a nonce in DPoP proofs.</summary>
+    public static OAuthError UseDPoPNonce(string? description = null) => new("use_dpop_nonce", description);
 }

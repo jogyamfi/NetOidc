@@ -27,4 +27,18 @@ public sealed class AccessToken
 
     /// <summary>JSON-encoded <c>authorization_details</c> array (RFC 9396).</summary>
     public string? AuthorizationDetailsJson { get; init; }
+
+    // ── Phase 5 ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// DPoP JWK thumbprint bound to this token (<c>cnf.jkt</c>, RFC 9449).
+    /// Non-null when the token was issued in response to a DPoP-protected token request.
+    /// </summary>
+    public string? CnfJwkThumbprint { get; init; }
+
+    /// <summary>
+    /// mTLS certificate thumbprint bound to this token (<c>cnf.x5t#S256</c>, RFC 8705).
+    /// Non-null when the token was issued to a client that authenticated via mTLS.
+    /// </summary>
+    public string? CnfX5tS256 { get; init; }
 }

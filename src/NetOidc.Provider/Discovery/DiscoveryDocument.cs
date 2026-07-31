@@ -126,4 +126,14 @@ public sealed class DiscoveryDocument
     [JsonPropertyName("id_token_encryption_enc_values_supported")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? IdTokenEncryptionEncValuesSupported { get; init; }
+
+    // ── Phase 5 ────────────────────────────────────────────────────────────────
+
+    [JsonPropertyName("dpop_signing_alg_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? DPoPSigningAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("tls_client_certificate_bound_access_tokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool TlsClientCertificateBoundAccessTokens { get; init; }
 }

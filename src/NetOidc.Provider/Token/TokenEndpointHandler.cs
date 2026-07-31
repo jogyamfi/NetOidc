@@ -6,6 +6,7 @@ using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Authorization;
 using NetOidc.Provider.Configuration;
+using NetOidc.Provider.DPoP;
 using NetOidc.Provider.Errors;
 using NetOidc.Provider.Jose;
 
@@ -14,6 +15,7 @@ namespace NetOidc.Provider.Token;
 /// <summary>
 /// Handles the token endpoint: dispatches authorization_code, refresh_token,
 /// client_credentials, token-exchange (RFC 8693), and jwt-bearer (RFC 7523) grant types.
+/// Phase 5: DPoP proof validation and mTLS certificate binding.
 /// </summary>
 public sealed class TokenEndpointHandler
 {
@@ -28,6 +30,7 @@ public sealed class TokenEndpointHandler
     private readonly IAdapter<RefreshToken> _refreshTokenStore;
     private readonly IAdapter<AccessToken> _accessTokenStore;
     private readonly TokenFactory _tokenFactory;
+    private readonly DPopProofValidator _dpopValidator;
 
     public TokenEndpointHandler(
         IOptions<ProviderOptions> options,
@@ -35,7 +38,8 @@ public sealed class TokenEndpointHandler
         IAdapter<AuthorizationCode> codeStore,
         IAdapter<RefreshToken> refreshTokenStore,
         IAdapter<AccessToken> accessTokenStore,
-        TokenFactory tokenFactory)
+        TokenFactory tokenFactory,
+        DPopProofValidator dpopValidator)
     {
         _options = options;
         _clientStore = clientStore;
@@ -43,6 +47,7 @@ public sealed class TokenEndpointHandler
         _refreshTokenStore = refreshTokenStore;
         _accessTokenStore = accessTokenStore;
         _tokenFactory = tokenFactory;
+        _dpopValidator = dpopValidator;
     }
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
@@ -51,26 +56,59 @@ public sealed class TokenEndpointHandler
             return TokenError(OAuthError.InvalidRequest("Content-Type must be application/x-www-form-urlencoded"), 400);
 
         var form = await context.Request.ReadFormAsync(ct);
+        var opts = _options.Value;
 
-        var client = await ClientAuthenticator.AuthenticateAsync(context, form, _clientStore, ct);
+        var client = await ClientAuthenticator.AuthenticateAsync(context, form, _clientStore, opts, ct);
         if (client is null)
         {
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"NetOidc\"";
             return TokenError(OAuthError.InvalidClient(), 401);
         }
 
+        // ── DPoP proof validation (RFC 9449) ────────────────────────────────────
+        string? cnfJwkThumbprint = null;
+        var dpopHeader = context.Request.Headers["DPoP"].ToString();
+        if (!string.IsNullOrEmpty(dpopHeader))
+        {
+            if (!opts.DPoPEnabled)
+                return TokenError(OAuthError.InvalidRequest("DPoP is not supported by this server"), 400);
+
+            var tokenEndpointUri = opts.Issuer.TrimEnd('/') + opts.TokenEndpoint;
+            cnfJwkThumbprint = await _dpopValidator.ValidateProofAsync(
+                dpopHeader,
+                context.Request.Method,
+                tokenEndpointUri,
+                accessToken: null,
+                clockSkewSeconds: opts.DPoPProofLifetimeSeconds);
+
+            if (cnfJwkThumbprint is null)
+                return TokenError(OAuthError.InvalidDPoPProof("DPoP proof is missing or invalid"), 400);
+        }
+
+        // ── mTLS certificate binding (RFC 8705 §3) ──────────────────────────────
+        string? cnfX5tS256 = null;
+        if (opts.MtlsEnabled && client.UseMtlsBoundTokens)
+        {
+            var cert = ClientAuthenticator.GetClientCertificate(context, opts);
+            if (cert is not null)
+                cnfX5tS256 = ClientAuthenticator.ComputeCertThumbprint(cert);
+        }
+
         var grantType = form["grant_type"].ToString();
         return grantType switch
         {
-            "authorization_code" => await HandleAuthorizationCodeAsync(form, client, ct),
-            "refresh_token" => await HandleRefreshTokenAsync(form, client, ct),
-            "client_credentials" => await HandleClientCredentialsAsync(form, client, ct),
+            "authorization_code" => await HandleAuthorizationCodeAsync(
+                form, client, cnfJwkThumbprint, cnfX5tS256, ct),
+            "refresh_token" => await HandleRefreshTokenAsync(
+                form, client, cnfJwkThumbprint, cnfX5tS256, ct),
+            "client_credentials" => await HandleClientCredentialsAsync(
+                form, client, cnfJwkThumbprint, cnfX5tS256, ct),
             "urn:ietf:params:oauth:grant-type:token-exchange"
-                when _options.Value.TokenExchangeEnabled
-                => await HandleTokenExchangeAsync(form, client, ct),
+                when opts.TokenExchangeEnabled
+                => await HandleTokenExchangeAsync(form, client, cnfJwkThumbprint, cnfX5tS256, ct),
             "urn:ietf:params:oauth:grant-type:jwt-bearer"
-                when _options.Value.JwtBearerGrantEnabled
-                => await HandleJwtBearerAsync(form, client, ct),
+                when opts.JwtBearerGrantEnabled
+                => await HandleJwtBearerAsync(form, client, cnfJwkThumbprint, cnfX5tS256, ct),
             _ => TokenError(OAuthError.UnsupportedGrantType(), 400),
         };
     }
@@ -78,7 +116,9 @@ public sealed class TokenEndpointHandler
     // ── authorization_code grant ───────────────────────────────────────────────
 
     private async Task<IResult> HandleAuthorizationCodeAsync(
-        IFormCollection form, Client client, CancellationToken ct)
+        IFormCollection form, Client client,
+        string? cnfJwkThumbprint, string? cnfX5tS256,
+        CancellationToken ct)
     {
         var code = form["code"].ToString();
         var redirectUri = form["redirect_uri"].ToString();
@@ -97,7 +137,6 @@ public sealed class TokenEndpointHandler
         if (authCode.ExpiresAt < DateTimeOffset.UtcNow)
             return TokenError(OAuthError.InvalidGrant("authorization code expired"), 400);
 
-        // redirect_uri must match if it was specified in the auth request
         if (!string.IsNullOrEmpty(redirectUri) && authCode.RedirectUri != redirectUri)
             return TokenError(OAuthError.InvalidGrant("redirect_uri mismatch"), 400);
 
@@ -114,7 +153,8 @@ public sealed class TokenEndpointHandler
         var opts = _options.Value;
         var tokenId = GenerateId();
         var atValue = _tokenFactory.CreateAccessToken(
-            tokenId, authCode.Subject, client.ClientId, authCode.Scopes);
+            tokenId, authCode.Subject, client.ClientId, authCode.Scopes,
+            cnfJwkThumbprint, cnfX5tS256);
 
         var at = new AccessToken
         {
@@ -126,6 +166,8 @@ public sealed class TokenEndpointHandler
             ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
             Resource = authCode.Resources.Count > 0 ? authCode.Resources[0] : null,
             AuthorizationDetailsJson = authCode.AuthorizationDetailsJson,
+            CnfJwkThumbprint = cnfJwkThumbprint,
+            CnfX5tS256 = cnfX5tS256,
         };
         await _accessTokenStore.StoreAsync(tokenId, at,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
@@ -154,7 +196,8 @@ public sealed class TokenEndpointHandler
                 authCode.Subject, client.ClientId, authCode.Nonce, authCode.AuthTime,
                 acr: authCode.Acr, amr: authCode.Amr, sid: authCode.SessionId);
 
-        var body = BuildTokenBody(atValue, opts.AccessTokenLifetimeSeconds, refreshTokenValue, idToken);
+        var body = BuildTokenBody(atValue, opts.AccessTokenLifetimeSeconds, refreshTokenValue, idToken,
+            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
         if (authCode.AuthorizationDetailsJson is not null)
             body["authorization_details"] = System.Text.Json.JsonSerializer
                 .Deserialize<object>(authCode.AuthorizationDetailsJson)!;
@@ -164,7 +207,9 @@ public sealed class TokenEndpointHandler
     // ── refresh_token grant ────────────────────────────────────────────────────
 
     private async Task<IResult> HandleRefreshTokenAsync(
-        IFormCollection form, Client client, CancellationToken ct)
+        IFormCollection form, Client client,
+        string? cnfJwkThumbprint, string? cnfX5tS256,
+        CancellationToken ct)
     {
         var rtValue = form["refresh_token"].ToString();
         if (string.IsNullOrEmpty(rtValue))
@@ -183,7 +228,8 @@ public sealed class TokenEndpointHandler
         var opts = _options.Value;
         var newTokenId = GenerateId();
         var atValue = _tokenFactory.CreateAccessToken(
-            newTokenId, rt.Subject, client.ClientId, rt.Scopes);
+            newTokenId, rt.Subject, client.ClientId, rt.Scopes,
+            cnfJwkThumbprint, cnfX5tS256);
 
         var newAt = new AccessToken
         {
@@ -195,11 +241,12 @@ public sealed class TokenEndpointHandler
             ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
             Resource = rt.Resources.Count > 0 ? rt.Resources[0] : null,
             AuthorizationDetailsJson = rt.AuthorizationDetailsJson,
+            CnfJwkThumbprint = cnfJwkThumbprint,
+            CnfX5tS256 = cnfX5tS256,
         };
         await _accessTokenStore.StoreAsync(newTokenId, newAt,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
 
-        // Rotate the refresh token
         var newRtId = GenerateId();
         var newRt = new RefreshToken
         {
@@ -214,13 +261,16 @@ public sealed class TokenEndpointHandler
         await _refreshTokenStore.StoreAsync(newRtId, newRt,
             TimeSpan.FromSeconds(opts.RefreshTokenLifetimeSeconds), ct);
 
-        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, newRtId, idToken: null);
+        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, newRtId, idToken: null,
+            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
     }
 
     // ── client_credentials grant ───────────────────────────────────────────────
 
     private async Task<IResult> HandleClientCredentialsAsync(
-        IFormCollection form, Client client, CancellationToken ct)
+        IFormCollection form, Client client,
+        string? cnfJwkThumbprint, string? cnfX5tS256,
+        CancellationToken ct)
     {
         if (!client.AllowedGrantTypes.Contains("client_credentials"))
             return TokenError(OAuthError.UnauthorizedClient("client_credentials not allowed for this client"), 400);
@@ -241,8 +291,9 @@ public sealed class TokenEndpointHandler
 
         var opts = _options.Value;
         var tokenId = GenerateId();
-        // client_credentials has no resource-owner subject (RFC 6749 §4.4)
-        var atValue = _tokenFactory.CreateAccessToken(tokenId, subject: null, client.ClientId, requestedScopes);
+        var atValue = _tokenFactory.CreateAccessToken(
+            tokenId, subject: null, client.ClientId, requestedScopes,
+            cnfJwkThumbprint, cnfX5tS256);
 
         var at = new AccessToken
         {
@@ -252,17 +303,22 @@ public sealed class TokenEndpointHandler
             Subject = null,
             Scopes = requestedScopes,
             ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
+            CnfJwkThumbprint = cnfJwkThumbprint,
+            CnfX5tS256 = cnfX5tS256,
         };
         await _accessTokenStore.StoreAsync(tokenId, at,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
 
-        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshToken: null, idToken: null);
+        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshToken: null, idToken: null,
+            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
     }
 
     // ── token-exchange grant (RFC 8693) ───────────────────────────────────────
 
     private async Task<IResult> HandleTokenExchangeAsync(
-        IFormCollection form, Client client, CancellationToken ct)
+        IFormCollection form, Client client,
+        string? cnfJwkThumbprint, string? cnfX5tS256,
+        CancellationToken ct)
     {
         var subjectToken = form["subject_token"].ToString();
         var subjectTokenType = form["subject_token_type"].ToString();
@@ -272,7 +328,6 @@ public sealed class TokenEndpointHandler
         if (string.IsNullOrEmpty(subjectTokenType))
             return TokenError(OAuthError.InvalidRequest("subject_token_type is required"), 400);
 
-        // Validate the subject token and extract the subject
         string? subject = null;
         IReadOnlyList<string> scopes;
 
@@ -283,7 +338,6 @@ public sealed class TokenEndpointHandler
                 var at = await _accessTokenStore.FindAsync(subjectToken, ct);
                 if (at is null || at.ExpiresAt < DateTimeOffset.UtcNow)
                 {
-                    // Try validating as JWT AT
                     var principal = await _tokenFactory.ValidateAccessTokenAsync(subjectToken, ct);
                     if (principal is null)
                         return TokenError(OAuthError.InvalidGrant("subject_token is invalid or expired"), 400);
@@ -321,7 +375,6 @@ public sealed class TokenEndpointHandler
                     $"Unsupported subject_token_type: {subjectTokenType}"), 400);
         }
 
-        // Requested scope (optional — default to subject token scopes)
         var scopeStr = form["scope"].ToString();
         var requestedScopes = string.IsNullOrEmpty(scopeStr)
             ? scopes.ToList()
@@ -329,7 +382,9 @@ public sealed class TokenEndpointHandler
 
         var opts = _options.Value;
         var tokenId = GenerateId();
-        var atValue = _tokenFactory.CreateAccessToken(tokenId, subject, client.ClientId, requestedScopes);
+        var atValue = _tokenFactory.CreateAccessToken(
+            tokenId, subject, client.ClientId, requestedScopes,
+            cnfJwkThumbprint, cnfX5tS256);
 
         var newAt = new AccessToken
         {
@@ -339,11 +394,14 @@ public sealed class TokenEndpointHandler
             Subject = subject,
             Scopes = requestedScopes,
             ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
+            CnfJwkThumbprint = cnfJwkThumbprint,
+            CnfX5tS256 = cnfX5tS256,
         };
         await _accessTokenStore.StoreAsync(tokenId, newAt,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
 
-        var body = BuildTokenBody(atValue, opts.AccessTokenLifetimeSeconds, null, null);
+        var body = BuildTokenBody(atValue, opts.AccessTokenLifetimeSeconds, null, null,
+            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
         body["issued_token_type"] = TokenTypeAccessToken;
         return Results.Json(body, statusCode: 200);
     }
@@ -351,7 +409,9 @@ public sealed class TokenEndpointHandler
     // ── jwt-bearer grant (RFC 7523) ────────────────────────────────────────────
 
     private async Task<IResult> HandleJwtBearerAsync(
-        IFormCollection form, Client client, CancellationToken ct)
+        IFormCollection form, Client client,
+        string? cnfJwkThumbprint, string? cnfX5tS256,
+        CancellationToken ct)
     {
         var assertion = form["assertion"].ToString();
         if (string.IsNullOrEmpty(assertion))
@@ -397,7 +457,9 @@ public sealed class TokenEndpointHandler
             return TokenError(OAuthError.InvalidScope($"Unknown scope(s): {string.Join(" ", unknownScopes)}"), 400);
 
         var tokenId = GenerateId();
-        var atValue = _tokenFactory.CreateAccessToken(tokenId, subject, client.ClientId, requestedScopes);
+        var atValue = _tokenFactory.CreateAccessToken(
+            tokenId, subject, client.ClientId, requestedScopes,
+            cnfJwkThumbprint, cnfX5tS256);
 
         var at = new AccessToken
         {
@@ -407,29 +469,34 @@ public sealed class TokenEndpointHandler
             Subject = subject,
             Scopes = requestedScopes,
             ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
+            CnfJwkThumbprint = cnfJwkThumbprint,
+            CnfX5tS256 = cnfX5tS256,
         };
         await _accessTokenStore.StoreAsync(tokenId, at,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
 
-        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, null, null);
+        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, null, null,
+            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private static IResult TokenSuccess(
-        string accessToken, int expiresIn, string? refreshToken, string? idToken)
+        string accessToken, int expiresIn, string? refreshToken, string? idToken,
+        string tokenType = "Bearer")
     {
-        var body = BuildTokenBody(accessToken, expiresIn, refreshToken, idToken);
+        var body = BuildTokenBody(accessToken, expiresIn, refreshToken, idToken, tokenType);
         return Results.Json(body, statusCode: 200);
     }
 
     private static Dictionary<string, object> BuildTokenBody(
-        string accessToken, int expiresIn, string? refreshToken, string? idToken)
+        string accessToken, int expiresIn, string? refreshToken, string? idToken,
+        string tokenType = "Bearer")
     {
         var body = new Dictionary<string, object>
         {
             ["access_token"] = accessToken,
-            ["token_type"] = "Bearer",
+            ["token_type"] = tokenType,
             ["expires_in"] = expiresIn,
         };
         if (refreshToken is not null) body["refresh_token"] = refreshToken;

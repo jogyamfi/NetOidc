@@ -181,4 +181,30 @@ public sealed class ProviderOptions
 
     /// <summary>When true, the <c>urn:ietf:params:oauth:grant-type:jwt-bearer</c> grant is active.</summary>
     public bool JwtBearerGrantEnabled { get; set; } = false;
+
+    // ── Phase 5 — DPoP (RFC 9449) ────────────────────────────────────────────
+
+    /// <summary>
+    /// When true, the token endpoint accepts a <c>DPoP</c> header and issues
+    /// DPoP-bound access tokens.  DPoP proofs are also validated on the UserInfo endpoint.
+    /// </summary>
+    public bool DPoPEnabled { get; set; } = false;
+
+    /// <summary>Allowed IAT drift for DPoP proofs in seconds (default 300 = 5 min).</summary>
+    public int DPoPProofLifetimeSeconds { get; set; } = 300;
+
+    // ── Phase 5 — Mutual TLS (RFC 8705) ──────────────────────────────────────
+
+    /// <summary>
+    /// When true, <c>tls_client_auth</c> and <c>self_signed_tls_client_auth</c>
+    /// are accepted as token-endpoint auth methods and mTLS-bound tokens may be issued.
+    /// </summary>
+    public bool MtlsEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Optional HTTP header name from which a PEM-encoded client certificate is read
+    /// (for reverse-proxy / test scenarios).  When null, <c>IConnectionFeature</c> is used.
+    /// Example: <c>"X-Client-Cert"</c>.
+    /// </summary>
+    public string? MtlsClientCertificateHeader { get; set; }
 }

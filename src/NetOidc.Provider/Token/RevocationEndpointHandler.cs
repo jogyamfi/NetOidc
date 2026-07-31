@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Models;
+using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
 using NetOidc.Provider.Jose;
 
@@ -18,17 +20,20 @@ public sealed class RevocationEndpointHandler
     private readonly IAdapter<AccessToken> _accessTokenStore;
     private readonly IAdapter<RefreshToken> _refreshTokenStore;
     private readonly TokenFactory _tokenFactory;
+    private readonly IOptions<ProviderOptions> _options;
 
     public RevocationEndpointHandler(
         IClientStore clientStore,
         IAdapter<AccessToken> accessTokenStore,
         IAdapter<RefreshToken> refreshTokenStore,
-        TokenFactory tokenFactory)
+        TokenFactory tokenFactory,
+        IOptions<ProviderOptions> options)
     {
         _clientStore = clientStore;
         _accessTokenStore = accessTokenStore;
         _refreshTokenStore = refreshTokenStore;
         _tokenFactory = tokenFactory;
+        _options = options;
     }
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
@@ -39,7 +44,8 @@ public sealed class RevocationEndpointHandler
 
         var form = await context.Request.ReadFormAsync(ct);
 
-        var caller = await ClientAuthenticator.AuthenticateAsync(context, form, _clientStore, ct);
+        var caller = await ClientAuthenticator.AuthenticateAsync(
+            context, form, _clientStore, _options.Value, ct);
         if (caller is null)
         {
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"NetOidc\"";

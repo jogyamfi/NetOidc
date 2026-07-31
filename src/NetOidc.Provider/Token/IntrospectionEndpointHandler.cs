@@ -44,7 +44,8 @@ public sealed class IntrospectionEndpointHandler
 
         var form = await context.Request.ReadFormAsync(ct);
 
-        var caller = await ClientAuthenticator.AuthenticateAsync(context, form, _clientStore, ct);
+        var caller = await ClientAuthenticator.AuthenticateAsync(
+            context, form, _clientStore, _options.Value, ct);
         if (caller is null)
         {
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"NetOidc\"";

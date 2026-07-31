@@ -82,4 +82,32 @@ public sealed class Client
 
     /// <summary>Content encryption alg for encrypted id_tokens (e.g. "A256GCM").</summary>
     public string? IdTokenEncryptedResponseEnc { get; init; }
+
+    // ── Phase 5 — Private-key JWT client auth (RFC 7523) ─────────────────────
+
+    /// <summary>
+    /// Inline JWKS JSON used to verify <c>private_key_jwt</c> client assertions.
+    /// Overlaps with <see cref="JwksJson"/> (JAR); the same field is re-used.
+    /// </summary>
+    // JwksJson already declared above; no new field needed for private_key_jwt.
+
+    // ── Phase 5 — mTLS client auth (RFC 8705) ────────────────────────────────
+
+    /// <summary>Expected subject DN when <c>token_endpoint_auth_method</c> is <c>tls_client_auth</c>.</summary>
+    public string? TlsClientAuthSubjectDn { get; init; }
+
+    /// <summary>Expected SAN DNS name for <c>tls_client_auth</c>.</summary>
+    public string? TlsClientAuthSanDns { get; init; }
+
+    /// <summary>Expected SAN URI for <c>tls_client_auth</c>.</summary>
+    public string? TlsClientAuthSanUri { get; init; }
+
+    /// <summary>Expected SAN IP address for <c>tls_client_auth</c>.</summary>
+    public string? TlsClientAuthSanIp { get; init; }
+
+    /// <summary>
+    /// When true, tokens issued to this client carry a <c>cnf.x5t#S256</c> claim binding
+    /// them to the mTLS certificate presented during authentication (RFC 8705 §3).
+    /// </summary>
+    public bool UseMtlsBoundTokens { get; init; } = false;
 }

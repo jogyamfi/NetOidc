@@ -45,7 +45,8 @@ public sealed class ParEndpointHandler
 
         var form = await context.Request.ReadFormAsync(ct);
 
-        var client = await ClientAuthenticator.AuthenticateAsync(context, form, _clientStore, ct);
+        var client = await ClientAuthenticator.AuthenticateAsync(
+            context, form, _clientStore, opts, ct);
         if (client is null)
         {
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"NetOidc\"";

@@ -22,8 +22,11 @@ public sealed class TokenFactory
 
     /// <summary>Issues a JWT access token per RFC 9068 (typ: at+JWT).</summary>
     /// <param name="subject">Resource owner subject, or <c>null</c> for client_credentials grants.</param>
+    /// <param name="cnfJwkThumbprint">DPoP JWK thumbprint for <c>cnf.jkt</c> (RFC 9449), or <c>null</c>.</param>
+    /// <param name="cnfX5tS256">mTLS certificate thumbprint for <c>cnf.x5t#S256</c> (RFC 8705), or <c>null</c>.</param>
     public string CreateAccessToken(
-        string tokenId, string? subject, string clientId, IReadOnlyList<string> scopes)
+        string tokenId, string? subject, string clientId, IReadOnlyList<string> scopes,
+        string? cnfJwkThumbprint = null, string? cnfX5tS256 = null)
     {
         var opts = _options.Value;
         var now = DateTime.UtcNow;
@@ -34,6 +37,12 @@ public sealed class TokenFactory
             ["scope"] = string.Join(" ", scopes),
         };
         if (subject is not null) claims["sub"] = subject;
+
+        // cnf claim (RFC 7800): bind the token to a proof-of-possession key or certificate.
+        if (cnfJwkThumbprint is not null)
+            claims["cnf"] = new Dictionary<string, string> { ["jkt"] = cnfJwkThumbprint };
+        else if (cnfX5tS256 is not null)
+            claims["cnf"] = new Dictionary<string, string> { ["x5t#S256"] = cnfX5tS256 };
 
         var descriptor = new SecurityTokenDescriptor
         {

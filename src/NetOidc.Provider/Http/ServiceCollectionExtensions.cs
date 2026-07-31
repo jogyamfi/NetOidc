@@ -8,6 +8,7 @@ using NetOidc.Provider.Claims;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Dcr;
 using NetOidc.Provider.Discovery;
+using NetOidc.Provider.DPoP;
 using NetOidc.Provider.Interaction;
 using NetOidc.Provider.Jose;
 using NetOidc.Provider.Logout;
@@ -49,6 +50,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<EncryptionKeyProvider>();
         services.TryAddSingleton<TokenFactory>();
         services.TryAddSingleton<RequestObjectValidator>();
+
+        // Phase 5 — DPoP
+        services.TryAddSingleton<DPopProofValidator>();
 
         // Discovery
         services.TryAddSingleton<DiscoveryService>();
