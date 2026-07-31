@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
@@ -22,19 +23,22 @@ public sealed class IntrospectionEndpointHandler
     private readonly IAdapter<RefreshToken> _refreshTokenStore;
     private readonly TokenFactory _tokenFactory;
     private readonly IOptions<ProviderOptions> _options;
+    private readonly IProviderEventSink _events;
 
     public IntrospectionEndpointHandler(
         IClientStore clientStore,
         IAdapter<AccessToken> accessTokenStore,
         IAdapter<RefreshToken> refreshTokenStore,
         TokenFactory tokenFactory,
-        IOptions<ProviderOptions> options)
+        IOptions<ProviderOptions> options,
+        IProviderEventSink events)
     {
         _clientStore = clientStore;
         _accessTokenStore = accessTokenStore;
         _refreshTokenStore = refreshTokenStore;
         _tokenFactory = tokenFactory;
         _options = options;
+        _events = events;
     }
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
@@ -59,14 +63,18 @@ public sealed class IntrospectionEndpointHandler
         var hint = form["token_type_hint"].ToString();
 
         // Try in hint order; if no hint, check access_token first then refresh_token.
+        IResult? result;
         if (hint == "refresh_token")
-            return await IntrospectRefreshTokenAsync(token, caller, ct)
-                   ?? await IntrospectAccessTokenAsync(token, caller, ct)
-                   ?? Inactive();
+            result = await IntrospectRefreshTokenAsync(token, caller, ct)
+                     ?? await IntrospectAccessTokenAsync(token, caller, ct);
+        else
+            result = await IntrospectAccessTokenAsync(token, caller, ct)
+                     ?? await IntrospectRefreshTokenAsync(token, caller, ct);
 
-        return await IntrospectAccessTokenAsync(token, caller, ct)
-               ?? await IntrospectRefreshTokenAsync(token, caller, ct)
-               ?? Inactive();
+        await _events.TokenIntrospectedAsync(new TokenIntrospectedEvent(
+            caller.ClientId, Active: result is not null, TokenSubject: null, DateTimeOffset.UtcNow), ct);
+
+        return result ?? Inactive();
     }
 
     // ── Per-type introspection ─────────────────────────────────────────────────

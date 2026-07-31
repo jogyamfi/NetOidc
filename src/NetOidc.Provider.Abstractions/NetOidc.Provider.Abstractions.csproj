@@ -4,6 +4,9 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PackageId>NetOidc.Provider.Abstractions</PackageId>
+    <Title>NetOidc Provider Abstractions</Title>
+    <Description>Public contracts for the NetOidc.Provider library: IAdapter&lt;T&gt;, IClientStore, IProviderEventSink, and all public model types. Reference this package in adapter implementations without pulling in the full provider.</Description>
   </PropertyGroup>
 
 </Project>

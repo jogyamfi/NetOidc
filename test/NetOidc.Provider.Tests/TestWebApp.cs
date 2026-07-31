@@ -21,9 +21,16 @@ internal sealed class TestWebApp : IAsyncDisposable
     public IServiceProvider Services => _app.Services;
 
     public static TestWebApp Create(Action<Configuration.ProviderOptions>? configure = null)
-        => new(configure);
+        => new(configure, null);
 
-    private TestWebApp(Action<Configuration.ProviderOptions>? configure)
+    public static TestWebApp Create(
+        Action<Configuration.ProviderOptions>? configure,
+        Action<NetOidc.Provider.Configuration.NetOidcBuilder>? configureBuilder)
+        => new(configure, configureBuilder);
+
+    private TestWebApp(
+        Action<Configuration.ProviderOptions>? configure,
+        Action<NetOidc.Provider.Configuration.NetOidcBuilder>? configureBuilder)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -32,7 +39,7 @@ internal sealed class TestWebApp : IAsyncDisposable
             .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
             .AddCookie();
 
-        builder.Services.AddNetOidc(opts =>
+        var oidcBuilder = builder.Services.AddNetOidc(opts =>
         {
             opts.Issuer = "https://auth.test.example.com";
             opts.LoginPath = "/test/signin";
@@ -142,6 +149,7 @@ internal sealed class TestWebApp : IAsyncDisposable
 
             configure?.Invoke(opts);
         });
+        configureBuilder?.Invoke(oidcBuilder);
 
         _app = builder.Build();
         _app.UseAuthentication();

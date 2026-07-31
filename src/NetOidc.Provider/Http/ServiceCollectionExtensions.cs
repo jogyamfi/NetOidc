@@ -2,8 +2,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Adapters;
+using NetOidc.Provider.Events;
 using NetOidc.Provider.Authorization;
 using NetOidc.Provider.Ciba;
 using NetOidc.Provider.Claims;
@@ -36,6 +38,9 @@ public static class ServiceCollectionExtensions
         Action<ProviderOptions> configure)
     {
         services.Configure(configure);
+
+        // Phase 9: event sink — default is no-op; callers can replace via AddEventSink<T>().
+        services.TryAddSingleton<IProviderEventSink, NoOpProviderEventSink>();
 
         // Phase 7: FAPI profile validation (runs on first options access / startup).
         services.TryAddSingleton<IValidateOptions<ProviderOptions>, FapiProfileValidator>();

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Http;
 
@@ -12,8 +13,7 @@ builder.Services
     .AddCookie(o => o.LoginPath = "/account/login");
 
 builder.Services.AddNetOidc(options =>
-{
-    options.Issuer = "http://localhost:5001";
+{    options.Issuer = "http://localhost:5001";
     options.LoginPath = "/account/login";
 
     options.FindUserClaims = (sub, scopes, ct) =>
@@ -50,7 +50,8 @@ builder.Services.AddNetOidc(options =>
         new Scope { Name = "profile", Description = "Profile information" },
         new Scope { Name = "email", Description = "Email address" },
     ];
-});
+})
+.AddEventSink<LoggingEventSink>();
 
 var app = builder.Build();
 
@@ -113,3 +114,42 @@ app.MapPost("/account/login", async (HttpContext ctx) =>
 app.MapNetOidc();
 
 app.Run();
+
+// ── Event sink ──────────────────────────────────────────────────────────────
+
+/// <summary>Sample event sink that logs provider lifecycle events to the console.</summary>
+sealed class LoggingEventSink(ILogger<LoggingEventSink> logger) : IProviderEventSink
+{
+    public Task TokenIssuedAsync(TokenIssuedEvent e, CancellationToken ct = default)
+    {
+        logger.LogInformation("Token issued: client={Client} subject={Subject} grant={Grant}",
+            e.ClientId, e.Subject ?? "(none)", e.GrantType);
+        return Task.CompletedTask;
+    }
+
+    public Task AuthorizationSucceededAsync(AuthorizationSucceededEvent e, CancellationToken ct = default)
+    {
+        logger.LogInformation("Authorization succeeded: client={Client} subject={Subject} scopes={Scopes}",
+            e.ClientId, e.Subject, string.Join(" ", e.GrantedScopes));
+        return Task.CompletedTask;
+    }
+
+    public Task TokenIntrospectedAsync(TokenIntrospectedEvent e, CancellationToken ct = default)
+    {
+        logger.LogInformation("Token introspected: caller={Caller} active={Active}",
+            e.CallerClientId, e.Active);
+        return Task.CompletedTask;
+    }
+
+    public Task TokenRevokedAsync(TokenRevokedEvent e, CancellationToken ct = default)
+    {
+        logger.LogInformation("Token revoked: caller={Caller}", e.CallerClientId);
+        return Task.CompletedTask;
+    }
+
+    public Task UserInfoRequestedAsync(UserInfoRequestedEvent e, CancellationToken ct = default)
+    {
+        logger.LogInformation("UserInfo requested: subject={Subject}", e.Subject);
+        return Task.CompletedTask;
+    }
+}

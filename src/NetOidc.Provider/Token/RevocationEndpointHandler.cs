@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
@@ -21,19 +22,22 @@ public sealed class RevocationEndpointHandler
     private readonly IAdapter<RefreshToken> _refreshTokenStore;
     private readonly TokenFactory _tokenFactory;
     private readonly IOptions<ProviderOptions> _options;
+    private readonly IProviderEventSink _events;
 
     public RevocationEndpointHandler(
         IClientStore clientStore,
         IAdapter<AccessToken> accessTokenStore,
         IAdapter<RefreshToken> refreshTokenStore,
         TokenFactory tokenFactory,
-        IOptions<ProviderOptions> options)
+        IOptions<ProviderOptions> options,
+        IProviderEventSink events)
     {
         _clientStore = clientStore;
         _accessTokenStore = accessTokenStore;
         _refreshTokenStore = refreshTokenStore;
         _tokenFactory = tokenFactory;
         _options = options;
+        _events = events;
     }
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
@@ -71,6 +75,8 @@ public sealed class RevocationEndpointHandler
         }
 
         // RFC 7009 §2.2: response is always 200 OK with an empty body
+        await _events.TokenRevokedAsync(new TokenRevokedEvent(
+            caller.ClientId, TokenSubject: null, DateTimeOffset.UtcNow), ct);
         return Results.Ok();
     }
 

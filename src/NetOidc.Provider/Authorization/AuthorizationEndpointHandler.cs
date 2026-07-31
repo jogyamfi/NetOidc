@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Claims;
 using NetOidc.Provider.Configuration;
@@ -40,6 +41,7 @@ public sealed class AuthorizationEndpointHandler
     private readonly SessionService _sessionService;
     private readonly IAdapter<PushedAuthorizationRequest> _parStore;
     private readonly RequestObjectValidator _requestObjectValidator;
+    private readonly IProviderEventSink _events;
 
     public AuthorizationEndpointHandler(
         IOptions<ProviderOptions> options,
@@ -51,7 +53,8 @@ public sealed class AuthorizationEndpointHandler
         IAdapter<AccessToken> accessTokenStore,
         SessionService sessionService,
         IAdapter<PushedAuthorizationRequest> parStore,
-        RequestObjectValidator requestObjectValidator)
+        RequestObjectValidator requestObjectValidator,
+        IProviderEventSink events)
     {
         _options = options;
         _clientStore = clientStore;
@@ -63,6 +66,7 @@ public sealed class AuthorizationEndpointHandler
         _sessionService = sessionService;
         _parStore = parStore;
         _requestObjectValidator = requestObjectValidator;
+        _events = events;
     }
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
@@ -330,6 +334,10 @@ public sealed class AuthorizationEndpointHandler
                 client: client);
             response["id_token"] = idToken;
         }
+
+        await _events.AuthorizationSucceededAsync(new AuthorizationSucceededEvent(
+            clientId, effectiveSub, rawResponseType ?? string.Empty,
+            grantedScopes, authTime), ct);
 
         return BuildRedirect(redirectUri, baseMode, response, useJarm ? clientId : null);
     }

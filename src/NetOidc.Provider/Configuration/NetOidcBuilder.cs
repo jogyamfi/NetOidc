@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using NetOidc.Provider.Abstractions.Events;
 
 namespace NetOidc.Provider.Configuration;
 
@@ -12,6 +13,16 @@ public sealed class NetOidcBuilder
     public IServiceCollection Services { get; }
 
     internal NetOidcBuilder(IServiceCollection services) => Services = services;
+
+    /// <summary>
+    /// Replaces the default no-op event sink with a custom implementation.
+    /// </summary>
+    public NetOidcBuilder AddEventSink<T>() where T : class, IProviderEventSink
+    {
+        // Replace the no-op default.
+        Services.AddSingleton<IProviderEventSink, T>();
+        return this;
+    }
 
     /// <summary>
     /// Applies the specified FAPI compliance profile. When <paramref name="validate"/>

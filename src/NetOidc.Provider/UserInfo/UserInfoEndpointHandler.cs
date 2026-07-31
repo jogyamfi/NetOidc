@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
+using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.DPoP;
 using NetOidc.Provider.Jose;
@@ -18,15 +19,18 @@ public sealed class UserInfoEndpointHandler
     private readonly TokenFactory _tokenFactory;
     private readonly IOptions<ProviderOptions> _options;
     private readonly DPopProofValidator _dpopValidator;
+    private readonly IProviderEventSink _events;
 
     public UserInfoEndpointHandler(
         TokenFactory tokenFactory,
         IOptions<ProviderOptions> options,
-        DPopProofValidator dpopValidator)
+        DPopProofValidator dpopValidator,
+        IProviderEventSink events)
     {
         _tokenFactory = tokenFactory;
         _options = options;
         _dpopValidator = dpopValidator;
+        _events = events;
     }
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
@@ -87,6 +91,9 @@ public sealed class UserInfoEndpointHandler
 
         var claims = await opts.FindUserClaims(sub, scopes, ct);
         var response = new Dictionary<string, object>(claims) { ["sub"] = sub };
+
+        await _events.UserInfoRequestedAsync(new UserInfoRequestedEvent(
+            sub, scopes, DateTimeOffset.UtcNow), ct);
 
         return Results.Json(response);
     }

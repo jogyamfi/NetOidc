@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Authorization;
 using NetOidc.Provider.Configuration;
@@ -35,6 +36,7 @@ public sealed class TokenEndpointHandler
     private readonly IAdapter<BackchannelAuthenticationRequest> _cibaStore;
     private readonly TokenFactory _tokenFactory;
     private readonly DPopProofValidator _dpopValidator;
+    private readonly IProviderEventSink _events;
 
     public TokenEndpointHandler(
         IOptions<ProviderOptions> options,
@@ -45,7 +47,8 @@ public sealed class TokenEndpointHandler
         IAdapter<DeviceCode> deviceCodeStore,
         IAdapter<BackchannelAuthenticationRequest> cibaStore,
         TokenFactory tokenFactory,
-        DPopProofValidator dpopValidator)
+        DPopProofValidator dpopValidator,
+        IProviderEventSink events)
     {
         _options = options;
         _clientStore = clientStore;
@@ -56,6 +59,7 @@ public sealed class TokenEndpointHandler
         _cibaStore = cibaStore;
         _tokenFactory = tokenFactory;
         _dpopValidator = dpopValidator;
+        _events = events;
     }
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
@@ -215,6 +219,11 @@ public sealed class TokenEndpointHandler
         if (authCode.AuthorizationDetailsJson is not null)
             body["authorization_details"] = System.Text.Json.JsonSerializer
                 .Deserialize<object>(authCode.AuthorizationDetailsJson)!;
+
+        await _events.TokenIssuedAsync(new TokenIssuedEvent(
+            client.ClientId, authCode.Subject, "authorization_code",
+            authCode.Scopes, DateTimeOffset.UtcNow), ct);
+
         return Results.Json(body, statusCode: 200);
     }
 
@@ -275,6 +284,10 @@ public sealed class TokenEndpointHandler
         await _refreshTokenStore.StoreAsync(newRtId, newRt,
             TimeSpan.FromSeconds(opts.RefreshTokenLifetimeSeconds), ct);
 
+        await _events.TokenIssuedAsync(new TokenIssuedEvent(
+            client.ClientId, rt.Subject, "refresh_token",
+            rt.Scopes, DateTimeOffset.UtcNow), ct);
+
         return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, newRtId, idToken: null,
             tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
     }
@@ -322,6 +335,10 @@ public sealed class TokenEndpointHandler
         };
         await _accessTokenStore.StoreAsync(tokenId, at,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+
+        await _events.TokenIssuedAsync(new TokenIssuedEvent(
+            client.ClientId, Subject: null, "client_credentials",
+            requestedScopes, DateTimeOffset.UtcNow), ct);
 
         return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshToken: null, idToken: null,
             tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
