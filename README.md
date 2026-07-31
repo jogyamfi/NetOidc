@@ -20,8 +20,25 @@ A configurable OAuth 2.0 / OpenID Connect provider for **.NET 8**, modeled after
 |---------|-------------|
 | `src/NetOidc.Provider` | Core library |
 | `src/NetOidc.Provider.Abstractions` | Public interfaces & models |
-| `samples/NetOidc.Sample.Host` | Minimal ASP.NET Core host |
+| `samples/NetOidc.Sample.Host` | Minimal ASP.NET Core host — runs the provider on port 5001 |
+| `samples/NetOidc.Sample.Client` | Razor Pages relying party — connects via `AddOpenIdConnect` on port 3000 |
 | `test/NetOidc.Provider.Tests` | 191 xUnit integration tests |
+
+## Running the samples end-to-end
+
+The two sample projects form a working OIDC pair. Start the provider first, then the client:
+
+```bash
+# terminal 1 — provider (http://localhost:5001)
+dotnet run --project samples/NetOidc.Sample.Host
+
+# terminal 2 — relying party (http://localhost:3000)
+dotnet run --project samples/NetOidc.Sample.Client
+```
+
+Open `http://localhost:3000`, click **Sign in via NetOidc**, and log in as `alice` / `password123`.
+The client's Profile page displays the identity claims and the raw UserInfo endpoint response.
+See [`samples/NetOidc.Sample.Client/README.md`](samples/NetOidc.Sample.Client/README.md) for full details.
 
 ## Implementation status
 
