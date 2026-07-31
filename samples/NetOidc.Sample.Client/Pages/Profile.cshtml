@@ -1,0 +1,33 @@
+@page
+@model ProfileModel
+@{
+    ViewData["Title"] = "Profile";
+}
+
+<h1>Profile</h1>
+
+<h2 class="h5 mt-4">Identity claims</h2>
+<table class="table table-striped table-sm w-auto">
+    <thead class="table-dark">
+        <tr><th>Type</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+        @foreach (var claim in Model.Claims)
+        {
+            <tr>
+                <td><code>@claim.Type</code></td>
+                <td>@claim.Value</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@if (Model.UserInfoJson is not null)
+{
+    <h2 class="h5 mt-4">UserInfo endpoint response</h2>
+    <pre class="bg-light border rounded p-3"><code>@Model.UserInfoJson</code></pre>
+}
+else
+{
+    <p class="text-muted"><em>No access token available — cannot call UserInfo endpoint.</em></p>
+}

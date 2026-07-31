@@ -1,0 +1,19 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Home";
+}
+
+<h1>NetOidc Sample Client</h1>
+<p class="lead">Demonstrates an OIDC relying party using <code>AddOpenIdConnect</code> against the NetOidc provider.</p>
+
+@if (User.Identity?.IsAuthenticated == true)
+{
+    <p>Signed in as <strong>@User.Identity.Name</strong>.</p>
+    <a asp-page="/Profile" class="btn btn-primary">View Profile &amp; Claims</a>
+}
+else
+{
+    <p>You are not signed in.</p>
+    <a asp-page="/Profile" class="btn btn-primary">Sign in via NetOidc</a>
+}
