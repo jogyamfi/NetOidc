@@ -110,4 +110,24 @@ public sealed class Client
     /// them to the mTLS certificate presented during authentication (RFC 8705 §3).
     /// </summary>
     public bool UseMtlsBoundTokens { get; init; } = false;
+
+    // ── Phase 6 — CIBA (OpenID CIBA Core 1.0) ────────────────────────────────
+
+    /// <summary>
+    /// CIBA delivery mode for this client: "poll", "ping", or "push".
+    /// Null means CIBA is not enabled for this client.
+    /// </summary>
+    public string? CibaDeliveryMode { get; init; }
+
+    /// <summary>
+    /// URI to which the OP sends a notification when CIBA authorization completes
+    /// (required for "ping" and "push" modes).
+    /// </summary>
+    public string? CibaClientNotificationEndpoint { get; init; }
+
+    /// <summary>
+    /// Required for "ping" and "push" modes — the JWK Set used to encrypt
+    /// the push notification token sent to the client notification endpoint.
+    /// </summary>
+    public string? CibaJwksJson { get; init; }
 }

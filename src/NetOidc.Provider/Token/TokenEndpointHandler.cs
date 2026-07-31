@@ -14,8 +14,10 @@ namespace NetOidc.Provider.Token;
 
 /// <summary>
 /// Handles the token endpoint: dispatches authorization_code, refresh_token,
-/// client_credentials, token-exchange (RFC 8693), and jwt-bearer (RFC 7523) grant types.
+/// client_credentials, token-exchange (RFC 8693), jwt-bearer (RFC 7523),
+/// device_code (RFC 8628), and CIBA grant types.
 /// Phase 5: DPoP proof validation and mTLS certificate binding.
+/// Phase 6: device_code and CIBA poll grants.
 /// </summary>
 public sealed class TokenEndpointHandler
 {
@@ -29,6 +31,8 @@ public sealed class TokenEndpointHandler
     private readonly IAdapter<AuthorizationCode> _codeStore;
     private readonly IAdapter<RefreshToken> _refreshTokenStore;
     private readonly IAdapter<AccessToken> _accessTokenStore;
+    private readonly IAdapter<DeviceCode> _deviceCodeStore;
+    private readonly IAdapter<BackchannelAuthenticationRequest> _cibaStore;
     private readonly TokenFactory _tokenFactory;
     private readonly DPopProofValidator _dpopValidator;
 
@@ -38,6 +42,8 @@ public sealed class TokenEndpointHandler
         IAdapter<AuthorizationCode> codeStore,
         IAdapter<RefreshToken> refreshTokenStore,
         IAdapter<AccessToken> accessTokenStore,
+        IAdapter<DeviceCode> deviceCodeStore,
+        IAdapter<BackchannelAuthenticationRequest> cibaStore,
         TokenFactory tokenFactory,
         DPopProofValidator dpopValidator)
     {
@@ -46,6 +52,8 @@ public sealed class TokenEndpointHandler
         _codeStore = codeStore;
         _refreshTokenStore = refreshTokenStore;
         _accessTokenStore = accessTokenStore;
+        _deviceCodeStore = deviceCodeStore;
+        _cibaStore = cibaStore;
         _tokenFactory = tokenFactory;
         _dpopValidator = dpopValidator;
     }
@@ -109,6 +117,12 @@ public sealed class TokenEndpointHandler
             "urn:ietf:params:oauth:grant-type:jwt-bearer"
                 when opts.JwtBearerGrantEnabled
                 => await HandleJwtBearerAsync(form, client, cnfJwkThumbprint, cnfX5tS256, ct),
+            "urn:ietf:params:oauth:grant-type:device_code"
+                when opts.DeviceFlowEnabled
+                => await HandleDeviceCodeAsync(form, client, cnfJwkThumbprint, cnfX5tS256, ct),
+            "urn:ietf:params:oauth:grant-type:ciba"
+                when opts.CibaEnabled
+                => await HandleCibaAsync(form, client, cnfJwkThumbprint, cnfX5tS256, ct),
             _ => TokenError(OAuthError.UnsupportedGrantType(), 400),
         };
     }
@@ -476,6 +490,214 @@ public sealed class TokenEndpointHandler
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
 
         return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, null, null,
+            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
+    }
+
+    // ── device_code grant (RFC 8628 §3.4) ────────────────────────────────────
+
+    private async Task<IResult> HandleDeviceCodeAsync(
+        IFormCollection form, Client client,
+        string? cnfJwkThumbprint, string? cnfX5tS256,
+        CancellationToken ct)
+    {
+        if (!client.AllowedGrantTypes.Contains("urn:ietf:params:oauth:grant-type:device_code"))
+            return TokenError(OAuthError.UnauthorizedClient("device_code grant not allowed for this client"), 400);
+
+        var deviceCodeValue = form["device_code"].ToString();
+        if (string.IsNullOrEmpty(deviceCodeValue))
+            return TokenError(OAuthError.InvalidRequest("device_code is required"), 400);
+
+        var deviceCode = await _deviceCodeStore.FindAsync(deviceCodeValue, ct);
+        if (deviceCode is null)
+            return TokenError(OAuthError.InvalidGrant("device code not found"), 400);
+
+        if (deviceCode.ClientId != client.ClientId)
+            return TokenError(OAuthError.InvalidGrant("client_id mismatch"), 400);
+
+        if (deviceCode.ExpiresAt <= DateTimeOffset.UtcNow)
+            return TokenError(OAuthError.ExpiredToken("device code has expired"), 400);
+
+        // Enforce minimum polling interval (RFC 8628 §3.5)
+        var opts = _options.Value;
+        var now = DateTimeOffset.UtcNow;
+        if (deviceCode.LastPolledAt.HasValue)
+        {
+            var elapsed = now - deviceCode.LastPolledAt.Value;
+            if (elapsed.TotalSeconds < opts.DevicePollingIntervalSeconds)
+            {
+                deviceCode.LastPolledAt = now;
+                var remaining = deviceCode.ExpiresAt - now;
+                if (remaining > TimeSpan.Zero)
+                    await _deviceCodeStore.StoreAsync(deviceCodeValue, deviceCode, remaining, ct);
+                return TokenError(OAuthError.SlowDown("polling too frequently"), 400);
+            }
+        }
+        deviceCode.LastPolledAt = now;
+
+        switch (deviceCode.Status)
+        {
+            case DeviceCodeStatus.Pending:
+            {
+                var remaining = deviceCode.ExpiresAt - now;
+                if (remaining > TimeSpan.Zero)
+                    await _deviceCodeStore.StoreAsync(deviceCodeValue, deviceCode, remaining, ct);
+                return TokenError(OAuthError.AuthorizationPending("user has not yet authorized"), 400);
+            }
+            case DeviceCodeStatus.Denied:
+                await _deviceCodeStore.RemoveAsync(deviceCodeValue, ct);
+                return TokenError(OAuthError.AccessDenied("user denied the authorization request"), 400);
+        }
+
+        // Approved — consume and issue tokens
+        await _deviceCodeStore.RemoveAsync(deviceCodeValue, ct);
+
+        var tokenId = GenerateId();
+        var atValue = _tokenFactory.CreateAccessToken(
+            tokenId, deviceCode.Subject!, client.ClientId, deviceCode.GrantedScopes,
+            cnfJwkThumbprint, cnfX5tS256);
+
+        var at = new AccessToken
+        {
+            TokenId = tokenId,
+            GrantId = tokenId,
+            ClientId = client.ClientId,
+            Subject = deviceCode.Subject,
+            Scopes = deviceCode.GrantedScopes,
+            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
+            CnfJwkThumbprint = cnfJwkThumbprint,
+            CnfX5tS256 = cnfX5tS256,
+        };
+        await _accessTokenStore.StoreAsync(tokenId, at,
+            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+
+        string? refreshTokenValue = null;
+        if (opts.IssueRefreshTokens)
+        {
+            refreshTokenValue = GenerateId();
+            var rt = new RefreshToken
+            {
+                TokenId = refreshTokenValue,
+                ClientId = client.ClientId,
+                Subject = deviceCode.Subject!,
+                Scopes = deviceCode.GrantedScopes,
+                ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.RefreshTokenLifetimeSeconds),
+            };
+            await _refreshTokenStore.StoreAsync(refreshTokenValue, rt,
+                TimeSpan.FromSeconds(opts.RefreshTokenLifetimeSeconds), ct);
+        }
+
+        string? idToken = null;
+        if (deviceCode.GrantedScopes.Contains("openid"))
+            idToken = _tokenFactory.CreateIdToken(
+                deviceCode.Subject!, client.ClientId, nonce: null,
+                authTime: deviceCode.CreatedAt,
+                acr: null, amr: null, sid: null);
+
+        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshTokenValue, idToken,
+            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
+    }
+
+    // ── CIBA poll grant (OpenID CIBA Core 1.0 §10) ────────────────────────────
+
+    private async Task<IResult> HandleCibaAsync(
+        IFormCollection form, Client client,
+        string? cnfJwkThumbprint, string? cnfX5tS256,
+        CancellationToken ct)
+    {
+        if (!client.AllowedGrantTypes.Contains("urn:ietf:params:oauth:grant-type:ciba"))
+            return TokenError(OAuthError.UnauthorizedClient("CIBA grant not allowed for this client"), 400);
+
+        var authReqId = form["auth_req_id"].ToString();
+        if (string.IsNullOrEmpty(authReqId))
+            return TokenError(OAuthError.InvalidRequest("auth_req_id is required"), 400);
+
+        var authRequest = await _cibaStore.FindAsync(authReqId, ct);
+        if (authRequest is null)
+            return TokenError(OAuthError.InvalidGrant("auth_req_id not found"), 400);
+
+        if (authRequest.ClientId != client.ClientId)
+            return TokenError(OAuthError.InvalidGrant("client_id mismatch"), 400);
+
+        if (authRequest.ExpiresAt <= DateTimeOffset.UtcNow)
+            return TokenError(OAuthError.ExpiredToken("auth_req_id has expired"), 400);
+
+        // Enforce minimum polling interval
+        var opts = _options.Value;
+        var now = DateTimeOffset.UtcNow;
+        if (authRequest.LastPolledAt.HasValue)
+        {
+            var elapsed = now - authRequest.LastPolledAt.Value;
+            if (elapsed.TotalSeconds < opts.CibaPollingIntervalSeconds)
+            {
+                authRequest.LastPolledAt = now;
+                var remaining = authRequest.ExpiresAt - now;
+                if (remaining > TimeSpan.Zero)
+                    await _cibaStore.StoreAsync(authReqId, authRequest, remaining, ct);
+                return TokenError(OAuthError.SlowDown("polling too frequently"), 400);
+            }
+        }
+        authRequest.LastPolledAt = now;
+
+        switch (authRequest.Status)
+        {
+            case BackchannelAuthenticationStatus.Pending:
+            {
+                var remaining = authRequest.ExpiresAt - now;
+                if (remaining > TimeSpan.Zero)
+                    await _cibaStore.StoreAsync(authReqId, authRequest, remaining, ct);
+                return TokenError(OAuthError.AuthorizationPending("user has not yet authenticated"), 400);
+            }
+            case BackchannelAuthenticationStatus.Denied:
+                await _cibaStore.RemoveAsync(authReqId, ct);
+                return TokenError(OAuthError.AccessDenied("user denied the authentication request"), 400);
+        }
+
+        // Approved — consume and issue tokens
+        await _cibaStore.RemoveAsync(authReqId, ct);
+
+        var tokenId = GenerateId();
+        var atValue = _tokenFactory.CreateAccessToken(
+            tokenId, authRequest.Subject!, client.ClientId, authRequest.GrantedScopes,
+            cnfJwkThumbprint, cnfX5tS256);
+
+        var at = new AccessToken
+        {
+            TokenId = tokenId,
+            GrantId = tokenId,
+            ClientId = client.ClientId,
+            Subject = authRequest.Subject,
+            Scopes = authRequest.GrantedScopes,
+            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
+            CnfJwkThumbprint = cnfJwkThumbprint,
+            CnfX5tS256 = cnfX5tS256,
+        };
+        await _accessTokenStore.StoreAsync(tokenId, at,
+            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+
+        string? refreshTokenValue = null;
+        if (opts.IssueRefreshTokens)
+        {
+            refreshTokenValue = GenerateId();
+            var rt = new RefreshToken
+            {
+                TokenId = refreshTokenValue,
+                ClientId = client.ClientId,
+                Subject = authRequest.Subject!,
+                Scopes = authRequest.GrantedScopes,
+                ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.RefreshTokenLifetimeSeconds),
+            };
+            await _refreshTokenStore.StoreAsync(refreshTokenValue, rt,
+                TimeSpan.FromSeconds(opts.RefreshTokenLifetimeSeconds), ct);
+        }
+
+        string? idToken = null;
+        if (authRequest.GrantedScopes.Contains("openid"))
+            idToken = _tokenFactory.CreateIdToken(
+                authRequest.Subject!, client.ClientId, nonce: null,
+                authTime: authRequest.CreatedAt,
+                acr: null, amr: null, sid: null);
+
+        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshTokenValue, idToken,
             tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
     }
 

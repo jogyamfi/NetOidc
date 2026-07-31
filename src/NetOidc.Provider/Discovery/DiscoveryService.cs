@@ -48,6 +48,10 @@ public sealed class DiscoveryService
             grantTypes.Add("urn:ietf:params:oauth:grant-type:token-exchange");
         if (opts.JwtBearerGrantEnabled)
             grantTypes.Add("urn:ietf:params:oauth:grant-type:jwt-bearer");
+        if (opts.DeviceFlowEnabled)
+            grantTypes.Add("urn:ietf:params:oauth:grant-type:device_code");
+        if (opts.CibaEnabled)
+            grantTypes.Add("urn:ietf:params:oauth:grant-type:ciba");
 
         // ── Phase 5: build token_endpoint_auth_methods_supported ────────────────
         var tokenAuthMethods = new List<string>
@@ -131,6 +135,19 @@ public sealed class DiscoveryService
                    "ES256", "ES384", "ES512"]
                 : null,
             TlsClientCertificateBoundAccessTokens = opts.MtlsEnabled,
+
+            // ── Phase 6 ──────────────────────────────────────────────────────
+            DeviceAuthorizationEndpoint = opts.DeviceFlowEnabled
+                ? Abs(opts.DeviceAuthorizationEndpoint) : null,
+            BackchannelAuthenticationEndpoint = opts.CibaEnabled
+                ? Abs(opts.BackchannelAuthenticationEndpoint) : null,
+            BackchannelTokenDeliveryModesSupported = opts.CibaEnabled
+                ? ["poll"] : null,
+            BackchannelAuthenticationRequestSigningAlgValuesSupported = opts.CibaEnabled
+                ? ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
+                   "ES256", "ES384", "ES512"]
+                : null,
+            BackchannelUserCodeParameterSupported = opts.CibaEnabled,
         };
     }
 

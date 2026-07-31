@@ -207,4 +207,46 @@ public sealed class ProviderOptions
     /// Example: <c>"X-Client-Cert"</c>.
     /// </summary>
     public string? MtlsClientCertificateHeader { get; set; }
+
+    // ── Phase 6 — Device Authorization Grant (RFC 8628) ──────────────────────
+
+    /// <summary>When true, the device authorization endpoint is active.</summary>
+    public bool DeviceFlowEnabled { get; set; } = false;
+
+    public string DeviceAuthorizationEndpoint { get; set; } = "/connect/device_authorization";
+
+    /// <summary>
+    /// URI where the user enters the <c>user_code</c> to authorize a device.
+    /// Advertised as <c>verification_uri</c> in the device authorization response.
+    /// </summary>
+    public string DeviceVerificationUri { get; set; } = "/connect/device";
+
+    /// <summary>Lifetime in seconds of device codes (default 600 s per RFC 8628 §3.2).</summary>
+    public int DeviceCodeLifetimeSeconds { get; set; } = 600;
+
+    /// <summary>
+    /// Minimum polling interval in seconds for the device_code grant (default 5 s per RFC 8628 §3.5).
+    /// </summary>
+    public int DevicePollingIntervalSeconds { get; set; } = 5;
+
+    // ── Phase 6 — CIBA (OpenID CIBA Core 1.0) ────────────────────────────────
+
+    /// <summary>When true, the backchannel authentication endpoint is active (poll mode).</summary>
+    public bool CibaEnabled { get; set; } = false;
+
+    public string BackchannelAuthenticationEndpoint { get; set; } = "/connect/ciba";
+
+    /// <summary>Lifetime in seconds of <c>auth_req_id</c> tokens (default 120 s).</summary>
+    public int CibaAuthReqIdLifetimeSeconds { get; set; } = 120;
+
+    /// <summary>Minimum polling interval in seconds for the CIBA poll mode (default 5 s).</summary>
+    public int CibaPollingIntervalSeconds { get; set; } = 5;
+
+    /// <summary>
+    /// Hook called after a CIBA request is accepted. The implementation should trigger
+    /// out-of-band authentication and later call the provider's
+    /// <see cref="CompleteCibaRequestAsync"/> method to approve or deny the request.
+    /// </summary>
+    public Func<Abstractions.Models.BackchannelAuthenticationRequest, CancellationToken, Task>?
+        ProcessBackchannelAuthenticationRequest { get; set; }
 }

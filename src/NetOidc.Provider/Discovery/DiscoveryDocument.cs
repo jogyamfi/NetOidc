@@ -136,4 +136,26 @@ public sealed class DiscoveryDocument
     [JsonPropertyName("tls_client_certificate_bound_access_tokens")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool TlsClientCertificateBoundAccessTokens { get; init; }
+
+    // ── Phase 6 ────────────────────────────────────────────────────────────────
+
+    [JsonPropertyName("device_authorization_endpoint")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DeviceAuthorizationEndpoint { get; init; }
+
+    [JsonPropertyName("backchannel_authentication_endpoint")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BackchannelAuthenticationEndpoint { get; init; }
+
+    [JsonPropertyName("backchannel_token_delivery_modes_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? BackchannelTokenDeliveryModesSupported { get; init; }
+
+    [JsonPropertyName("backchannel_authentication_request_signing_alg_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? BackchannelAuthenticationRequestSigningAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("backchannel_user_code_parameter_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool BackchannelUserCodeParameterSupported { get; init; }
 }

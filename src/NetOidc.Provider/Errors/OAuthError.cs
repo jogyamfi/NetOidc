@@ -41,4 +41,18 @@ public sealed record OAuthError(
 
     /// <summary>RFC 9449 §8: the server requires a nonce in DPoP proofs.</summary>
     public static OAuthError UseDPoPNonce(string? description = null) => new("use_dpop_nonce", description);
+
+    // ── Phase 6 ───────────────────────────────────────────────────────────────
+
+    /// <summary>RFC 8628 §3.5 / CIBA §11: authorization has not yet been granted by the user.</summary>
+    public static OAuthError AuthorizationPending(string? description = null) => new("authorization_pending", description);
+
+    /// <summary>RFC 8628 §3.5 / CIBA §11: the client is polling too frequently.</summary>
+    public static OAuthError SlowDown(string? description = null) => new("slow_down", description);
+
+    /// <summary>RFC 8628 §3.5: the device code has expired before the user authorized.</summary>
+    public static OAuthError ExpiredToken(string? description = null) => new("expired_token", description);
+
+    /// <summary>CIBA: the authorization request was denied by the user or timed out.</summary>
+    public static OAuthError AccessDeniedCiba(string? description = null) => new("access_denied", description);
 }

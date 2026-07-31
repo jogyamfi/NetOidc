@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Authorization;
+using NetOidc.Provider.Ciba;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Dcr;
+using NetOidc.Provider.Device;
 using NetOidc.Provider.Discovery;
 using NetOidc.Provider.Logout;
 using NetOidc.Provider.Par;
@@ -68,6 +70,24 @@ public static class EndpointRouteBuilderExtensions
         // Pushed Authorization Request (RFC 9126, always mounted; handler enforces feature toggle)
         endpoints.MapPost(opts.PushedAuthorizationEndpoint,
             (ParEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
+                h.HandleAsync(ctx, ct));
+
+        // Device Authorization (RFC 8628, always mounted; handler enforces feature toggle)
+        endpoints.MapPost(opts.DeviceAuthorizationEndpoint,
+            (DeviceAuthorizationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
+                h.HandleAsync(ctx, ct));
+
+        endpoints.MapGet(opts.DeviceVerificationUri,
+            (DeviceVerificationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
+                h.HandleGetAsync(ctx, ct));
+
+        endpoints.MapPost(opts.DeviceVerificationUri,
+            (DeviceVerificationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
+                h.HandlePostAsync(ctx, ct));
+
+        // CIBA — Backchannel Authentication (always mounted; handler enforces feature toggle)
+        endpoints.MapPost(opts.BackchannelAuthenticationEndpoint,
+            (CibaEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct));
 
         // Dynamic Client Registration (RFC 7591/7592, active when DcrEnabled)

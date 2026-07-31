@@ -18,6 +18,7 @@ internal sealed class TestWebApp : IAsyncDisposable
 {
     private readonly WebApplication _app;
     public HttpClient Client { get; }
+    public IServiceProvider Services => _app.Services;
 
     public static TestWebApp Create(Action<Configuration.ProviderOptions>? configure = null)
         => new(configure);
@@ -99,6 +100,29 @@ internal sealed class TestWebApp : IAsyncDisposable
                     RedirectUris = ["https://client.test.example.com/callback"],
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
+                },
+                // Phase 6 device-flow client
+                new Client
+                {
+                    ClientId = "device-client",
+                    ClientSecret = "device-secret",
+                    AllowedGrantTypes = ["urn:ietf:params:oauth:grant-type:device_code"],
+                    AllowedScopes = ["openid", "profile"],
+                    RedirectUris = [],
+                    TokenEndpointAuthMethod = "client_secret_basic",
+                    RequirePkce = false,
+                },
+                // Phase 6 CIBA client (poll mode)
+                new Client
+                {
+                    ClientId = "ciba-client",
+                    ClientSecret = "ciba-secret",
+                    AllowedGrantTypes = ["urn:ietf:params:oauth:grant-type:ciba"],
+                    AllowedScopes = ["openid", "profile"],
+                    RedirectUris = [],
+                    TokenEndpointAuthMethod = "client_secret_basic",
+                    RequirePkce = false,
+                    CibaDeliveryMode = "poll",
                 },
             ];
 

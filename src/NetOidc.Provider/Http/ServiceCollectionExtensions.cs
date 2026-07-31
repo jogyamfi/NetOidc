@@ -4,9 +4,11 @@ using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Adapters;
 using NetOidc.Provider.Authorization;
+using NetOidc.Provider.Ciba;
 using NetOidc.Provider.Claims;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Dcr;
+using NetOidc.Provider.Device;
 using NetOidc.Provider.Discovery;
 using NetOidc.Provider.DPoP;
 using NetOidc.Provider.Interaction;
@@ -39,6 +41,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IAdapter<RefreshToken>, InMemoryAdapter<RefreshToken>>();
         services.TryAddSingleton<IAdapter<OidcSession>, InMemoryAdapter<OidcSession>>();
         services.TryAddSingleton<IAdapter<PushedAuthorizationRequest>, InMemoryAdapter<PushedAuthorizationRequest>>();
+
+        // Phase 6 storage adapters
+        services.TryAddSingleton<IAdapter<DeviceCode>, InMemoryAdapter<DeviceCode>>();
+        services.TryAddSingleton<IAdapter<BackchannelAuthenticationRequest>, InMemoryAdapter<BackchannelAuthenticationRequest>>();
 
         // Client store: InMemoryDynamicClientStore satisfies both IClientStore and IDynamicClientStore.
         services.TryAddSingleton<InMemoryDynamicClientStore>();
@@ -79,6 +85,11 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<DynamicRegistrationEndpointHandler>();
         services.TryAddSingleton<LogoutEndpointHandler>();
         services.TryAddSingleton<ParEndpointHandler>();
+
+        // Phase 6 endpoint handlers
+        services.TryAddSingleton<DeviceAuthorizationEndpointHandler>();
+        services.TryAddSingleton<DeviceVerificationEndpointHandler>();
+        services.TryAddSingleton<CibaEndpointHandler>();
 
         return new NetOidcBuilder(services);
     }
