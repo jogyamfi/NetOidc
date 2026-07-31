@@ -20,6 +20,12 @@ public sealed class DiscoveryDocument
     [JsonPropertyName("userinfo_endpoint")]
     public required string UserInfoEndpoint { get; init; }
 
+    [JsonPropertyName("introspection_endpoint")]
+    public string? IntrospectionEndpoint { get; init; }
+
+    [JsonPropertyName("revocation_endpoint")]
+    public string? RevocationEndpoint { get; init; }
+
     [JsonPropertyName("jwks_uri")]
     public required string JwksUri { get; init; }
 
@@ -38,6 +44,12 @@ public sealed class DiscoveryDocument
     [JsonPropertyName("token_endpoint_auth_methods_supported")]
     public required IReadOnlyList<string> TokenEndpointAuthMethodsSupported { get; init; }
 
+    [JsonPropertyName("introspection_endpoint_auth_methods_supported")]
+    public IReadOnlyList<string>? IntrospectionEndpointAuthMethodsSupported { get; init; }
+
+    [JsonPropertyName("revocation_endpoint_auth_methods_supported")]
+    public IReadOnlyList<string>? RevocationEndpointAuthMethodsSupported { get; init; }
+
     [JsonPropertyName("code_challenge_methods_supported")]
     public required IReadOnlyList<string> CodeChallengeMethodsSupported { get; init; }
 
@@ -46,4 +58,10 @@ public sealed class DiscoveryDocument
 
     [JsonPropertyName("response_modes_supported")]
     public required IReadOnlyList<string> ResponseModesSupported { get; init; }
+
+    [JsonPropertyName("claims_parameter_supported")]
+    public bool ClaimsParameterSupported { get; init; }
+
+    [JsonPropertyName("authorization_response_iss_parameter_supported")]
+    public bool AuthorizationResponseIssParameterSupported { get; init; }
 }

@@ -47,7 +47,37 @@ internal sealed class TestWebApp : IAsyncDisposable
                     RedirectUris = ["https://client.test.example.com/callback"],
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
-                }
+                },
+                new Client
+                {
+                    ClientId = "implicit-client",
+                    ClientSecret = "implicit-secret",
+                    AllowedGrantTypes = ["implicit"],
+                    AllowedScopes = ["openid", "profile"],
+                    RedirectUris = ["https://client.test.example.com/callback"],
+                    TokenEndpointAuthMethod = "client_secret_basic",
+                    RequirePkce = false,
+                },
+                new Client
+                {
+                    ClientId = "hybrid-client",
+                    ClientSecret = "hybrid-secret",
+                    AllowedGrantTypes = ["hybrid"],
+                    AllowedScopes = ["openid", "profile"],
+                    RedirectUris = ["https://client.test.example.com/callback"],
+                    TokenEndpointAuthMethod = "client_secret_basic",
+                    RequirePkce = false,
+                },
+                new Client
+                {
+                    ClientId = "cc-client",
+                    ClientSecret = "cc-secret",
+                    AllowedGrantTypes = ["client_credentials"],
+                    AllowedScopes = ["profile"],
+                    RedirectUris = [],
+                    TokenEndpointAuthMethod = "client_secret_basic",
+                    RequirePkce = false,
+                },
             ];
 
             opts.Scopes =

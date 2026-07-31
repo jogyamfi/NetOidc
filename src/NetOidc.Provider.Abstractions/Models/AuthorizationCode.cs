@@ -13,4 +13,10 @@ public sealed class AuthorizationCode
     public string? CodeChallengeMethod { get; init; }
     public required DateTimeOffset AuthTime { get; init; }
     public required DateTimeOffset ExpiresAt { get; init; }
+    /// <summary>Raw JSON value of the OIDC 'claims' request parameter (OIDC Core §5.5).</summary>
+    public string? ClaimsRequest { get; init; }
+    /// <summary>Authentication Context Reference asserted by the interaction service.</summary>
+    public string? Acr { get; init; }
+    /// <summary>Authentication Methods References asserted by the interaction service.</summary>
+    public IReadOnlyList<string>? Amr { get; init; }
 }
