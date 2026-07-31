@@ -21,4 +21,12 @@ public sealed class AuthorizationCode
     public IReadOnlyList<string>? Amr { get; init; }
     /// <summary>OIDC session ID — included in ID tokens as the <c>sid</c> claim when set.</summary>
     public string? SessionId { get; init; }
+
+    // ── Phase 4 ──────────────────────────────────────────────────────────────
+
+    /// <summary>Resource indicators requested via <c>resource</c> parameter (RFC 8707).</summary>
+    public IReadOnlyList<string> Resources { get; init; } = [];
+
+    /// <summary>JSON-encoded <c>authorization_details</c> array (RFC 9396).</summary>
+    public string? AuthorizationDetailsJson { get; init; }
 }

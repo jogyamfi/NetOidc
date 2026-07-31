@@ -121,4 +121,64 @@ public sealed class ProviderOptions
         FindUserClaims { get; set; } =
             static (sub, _, _) => Task.FromResult<IReadOnlyDictionary<string, object>>(
                 new Dictionary<string, object> { ["sub"] = sub });
+
+    // ── PAR — Pushed Authorization Requests (RFC 9126) ───────────────────────
+
+    /// <summary>When true, the <c>POST /connect/par</c> endpoint is active.</summary>
+    public bool PushedAuthorizationEnabled { get; set; } = false;
+
+    /// <summary>When true, every authorization request must be a previously pushed request.</summary>
+    public bool RequirePushedAuthorization { get; set; } = false;
+
+    public string PushedAuthorizationEndpoint { get; set; } = "/connect/par";
+
+    /// <summary>Lifetime in seconds of PAR request objects (default 90 s per RFC 9126 §2.2).</summary>
+    public int PushedAuthorizationLifetimeSeconds { get; set; } = 90;
+
+    // ── JAR — JWT-Secured Authorization Requests (RFC 9101) ──────────────────
+
+    /// <summary>
+    /// When true, the provider processes <c>request</c> JWT parameters on the authorization endpoint.
+    /// </summary>
+    public bool JarEnabled { get; set; } = false;
+
+    /// <summary>
+    /// When true (and <see cref="JarEnabled"/> is true), every authorization request must include a
+    /// signed request object; unsigned (alg=none) objects are rejected.
+    /// </summary>
+    public bool JarRequireSignedRequestObject { get; set; } = false;
+
+    // ── JARM — JWT Authorization Response Mode ───────────────────────────────
+
+    /// <summary>
+    /// When true, the <c>query.jwt</c>, <c>fragment.jwt</c>, and <c>form_post.jwt</c> response modes
+    /// are available (JWT Authorization Response Mode).
+    /// </summary>
+    public bool JarmEnabled { get; set; } = false;
+
+    // ── Resource Indicators (RFC 8707) ───────────────────────────────────────
+
+    /// <summary>When true, the <c>resource</c> parameter is accepted and stored with tokens.</summary>
+    public bool ResourceIndicatorsEnabled { get; set; } = false;
+
+    // ── Rich Authorization Requests (RFC 9396) ───────────────────────────────
+
+    /// <summary>When true, the <c>authorization_details</c> parameter is processed.</summary>
+    public bool RichAuthorizationRequestsEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Authorization details types this server supports (advertised in discovery).
+    /// Empty means no restriction on types.
+    /// </summary>
+    public IList<string> AuthorizationDetailsTypesSupported { get; set; } = [];
+
+    // ── Token Exchange (RFC 8693) ─────────────────────────────────────────────
+
+    /// <summary>When true, the <c>urn:ietf:params:oauth:grant-type:token-exchange</c> grant is active.</summary>
+    public bool TokenExchangeEnabled { get; set; } = false;
+
+    // ── JWT Bearer grant (RFC 7523) ───────────────────────────────────────────
+
+    /// <summary>When true, the <c>urn:ietf:params:oauth:grant-type:jwt-bearer</c> grant is active.</summary>
+    public bool JwtBearerGrantEnabled { get; set; } = false;
 }

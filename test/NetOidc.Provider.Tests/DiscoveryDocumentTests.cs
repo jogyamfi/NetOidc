@@ -47,7 +47,8 @@ public sealed class DiscoveryDocumentTests
             await app.Client.GetStringAsync("/.well-known/jwks.json"));
 
         var keys = json.RootElement.GetProperty("keys");
-        Assert.Equal(1, keys.GetArrayLength());
+        // JWKS now contains a signing key (use=sig) and an encryption key (use=enc)
+        Assert.True(keys.GetArrayLength() >= 1);
 
         var key = keys[0];
         Assert.Equal("RSA", key.GetProperty("kty").GetString());

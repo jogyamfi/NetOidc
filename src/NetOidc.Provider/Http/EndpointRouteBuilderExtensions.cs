@@ -8,6 +8,7 @@ using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Dcr;
 using NetOidc.Provider.Discovery;
 using NetOidc.Provider.Logout;
+using NetOidc.Provider.Par;
 using NetOidc.Provider.Token;
 using NetOidc.Provider.UserInfo;
 
@@ -63,6 +64,11 @@ public static class EndpointRouteBuilderExtensions
                 (LogoutEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                     h.HandleAsync(ctx, ct));
         }
+
+        // Pushed Authorization Request (RFC 9126, always mounted; handler enforces feature toggle)
+        endpoints.MapPost(opts.PushedAuthorizationEndpoint,
+            (ParEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
+                h.HandleAsync(ctx, ct));
 
         // Dynamic Client Registration (RFC 7591/7592, active when DcrEnabled)
         if (opts.DcrEnabled)

@@ -16,4 +16,21 @@ public sealed record OAuthError(
     public static OAuthError UnsupportedGrantType(string? description = null) => new("unsupported_grant_type", description);
     public static OAuthError InvalidScope(string? description = null) => new("invalid_scope", description);
     public static OAuthError ServerError(string? description = null) => new("server_error", description);
+
+    // ── Phase 4 ───────────────────────────────────────────────────────────────
+
+    /// <summary>RFC 8707: the requested resource indicator is invalid or unsupported.</summary>
+    public static OAuthError InvalidTarget(string? description = null) => new("invalid_target", description);
+
+    /// <summary>RFC 9396: an authorization_details type is unknown or the structure is invalid.</summary>
+    public static OAuthError InvalidAuthorizationDetails(string? description = null) => new("invalid_authorization_details", description);
+
+    /// <summary>RFC 9126: pushed authorization request_uri is invalid, expired, or already consumed.</summary>
+    public static OAuthError InvalidRequestUri(string? description = null) => new("invalid_request_uri", description);
+
+    /// <summary>RFC 9101: the request JWT (request object) is invalid or its signature cannot be verified.</summary>
+    public static OAuthError InvalidRequestObject(string? description = null) => new("invalid_request_object", description);
+
+    /// <summary>RFC 8693: the type identifier of the subject_token is not supported.</summary>
+    public static OAuthError InvalidTokenType(string? description = null) => new("invalid_token_type", description);
 }

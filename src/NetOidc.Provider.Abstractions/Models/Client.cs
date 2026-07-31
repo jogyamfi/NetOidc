@@ -52,4 +52,34 @@ public sealed class Client
 
     /// <summary>Allowed URIs to redirect to after RP-initiated logout.</summary>
     public IReadOnlyList<string> PostLogoutRedirectUris { get; init; } = [];
+
+    // ── JAR (RFC 9101) — JWT-Secured Authorization Requests ─────────────────
+
+    /// <summary>Inline JWKS JSON used to verify the client's signed request objects.</summary>
+    public string? JwksJson { get; init; }
+
+    /// <summary>Expected signing alg for request objects (e.g. "RS256"). Null = any supported alg.</summary>
+    public string? RequestObjectSigningAlg { get; init; }
+
+    /// <summary>When true, every authorization request to this client must include a signed request object.</summary>
+    public bool RequireSignedRequestObject { get; init; } = false;
+
+    /// <summary>Alg used to encrypt incoming request objects sent to the OP (e.g. "RSA-OAEP").</summary>
+    public string? RequestObjectEncryptionAlg { get; init; }
+
+    /// <summary>Enc used to encrypt incoming request objects (e.g. "A256GCM").</summary>
+    public string? RequestObjectEncryptionEnc { get; init; }
+
+    // ── JARM — JWT Authorization Response Mode ───────────────────────────────
+
+    /// <summary>Signing alg for JARM authorization responses (e.g. "RS256"). Null = use server default.</summary>
+    public string? AuthorizationSignedResponseAlg { get; init; }
+
+    // ── ID Token encryption ──────────────────────────────────────────────────
+
+    /// <summary>Key-wrapping alg for encrypted id_tokens sent to this client (e.g. "RSA-OAEP").</summary>
+    public string? IdTokenEncryptedResponseAlg { get; init; }
+
+    /// <summary>Content encryption alg for encrypted id_tokens (e.g. "A256GCM").</summary>
+    public string? IdTokenEncryptedResponseEnc { get; init; }
 }

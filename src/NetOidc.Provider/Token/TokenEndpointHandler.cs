@@ -12,11 +12,16 @@ using NetOidc.Provider.Jose;
 namespace NetOidc.Provider.Token;
 
 /// <summary>
-/// Handles the token endpoint: dispatches <c>authorization_code</c> and
-/// <c>refresh_token</c> grant types.
+/// Handles the token endpoint: dispatches authorization_code, refresh_token,
+/// client_credentials, token-exchange (RFC 8693), and jwt-bearer (RFC 7523) grant types.
 /// </summary>
 public sealed class TokenEndpointHandler
 {
+    // Token type URIs (RFC 8693 §3)
+    private const string TokenTypeAccessToken = "urn:ietf:params:oauth:token-type:access_token";
+    private const string TokenTypeRefreshToken = "urn:ietf:params:oauth:token-type:refresh_token";
+    private const string TokenTypeIdToken = "urn:ietf:params:oauth:token-type:id_token";
+
     private readonly IOptions<ProviderOptions> _options;
     private readonly IClientStore _clientStore;
     private readonly IAdapter<AuthorizationCode> _codeStore;
@@ -60,6 +65,12 @@ public sealed class TokenEndpointHandler
             "authorization_code" => await HandleAuthorizationCodeAsync(form, client, ct),
             "refresh_token" => await HandleRefreshTokenAsync(form, client, ct),
             "client_credentials" => await HandleClientCredentialsAsync(form, client, ct),
+            "urn:ietf:params:oauth:grant-type:token-exchange"
+                when _options.Value.TokenExchangeEnabled
+                => await HandleTokenExchangeAsync(form, client, ct),
+            "urn:ietf:params:oauth:grant-type:jwt-bearer"
+                when _options.Value.JwtBearerGrantEnabled
+                => await HandleJwtBearerAsync(form, client, ct),
             _ => TokenError(OAuthError.UnsupportedGrantType(), 400),
         };
     }
@@ -113,6 +124,8 @@ public sealed class TokenEndpointHandler
             Subject = authCode.Subject,
             Scopes = authCode.Scopes,
             ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
+            Resource = authCode.Resources.Count > 0 ? authCode.Resources[0] : null,
+            AuthorizationDetailsJson = authCode.AuthorizationDetailsJson,
         };
         await _accessTokenStore.StoreAsync(tokenId, at,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
@@ -128,6 +141,8 @@ public sealed class TokenEndpointHandler
                 Subject = authCode.Subject,
                 Scopes = authCode.Scopes,
                 ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.RefreshTokenLifetimeSeconds),
+                Resources = authCode.Resources,
+                AuthorizationDetailsJson = authCode.AuthorizationDetailsJson,
             };
             await _refreshTokenStore.StoreAsync(refreshTokenValue, rt,
                 TimeSpan.FromSeconds(opts.RefreshTokenLifetimeSeconds), ct);
@@ -139,7 +154,11 @@ public sealed class TokenEndpointHandler
                 authCode.Subject, client.ClientId, authCode.Nonce, authCode.AuthTime,
                 acr: authCode.Acr, amr: authCode.Amr, sid: authCode.SessionId);
 
-        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshTokenValue, idToken);
+        var body = BuildTokenBody(atValue, opts.AccessTokenLifetimeSeconds, refreshTokenValue, idToken);
+        if (authCode.AuthorizationDetailsJson is not null)
+            body["authorization_details"] = System.Text.Json.JsonSerializer
+                .Deserialize<object>(authCode.AuthorizationDetailsJson)!;
+        return Results.Json(body, statusCode: 200);
     }
 
     // ── refresh_token grant ────────────────────────────────────────────────────
@@ -166,7 +185,7 @@ public sealed class TokenEndpointHandler
         var atValue = _tokenFactory.CreateAccessToken(
             newTokenId, rt.Subject, client.ClientId, rt.Scopes);
 
-        var at = new AccessToken
+        var newAt = new AccessToken
         {
             TokenId = newTokenId,
             GrantId = newTokenId,
@@ -174,8 +193,10 @@ public sealed class TokenEndpointHandler
             Subject = rt.Subject,
             Scopes = rt.Scopes,
             ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
+            Resource = rt.Resources.Count > 0 ? rt.Resources[0] : null,
+            AuthorizationDetailsJson = rt.AuthorizationDetailsJson,
         };
-        await _accessTokenStore.StoreAsync(newTokenId, at,
+        await _accessTokenStore.StoreAsync(newTokenId, newAt,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
 
         // Rotate the refresh token
@@ -187,6 +208,8 @@ public sealed class TokenEndpointHandler
             Subject = rt.Subject,
             Scopes = rt.Scopes,
             ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.RefreshTokenLifetimeSeconds),
+            Resources = rt.Resources,
+            AuthorizationDetailsJson = rt.AuthorizationDetailsJson,
         };
         await _refreshTokenStore.StoreAsync(newRtId, newRt,
             TimeSpan.FromSeconds(opts.RefreshTokenLifetimeSeconds), ct);
@@ -236,9 +259,171 @@ public sealed class TokenEndpointHandler
         return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshToken: null, idToken: null);
     }
 
+    // ── token-exchange grant (RFC 8693) ───────────────────────────────────────
+
+    private async Task<IResult> HandleTokenExchangeAsync(
+        IFormCollection form, Client client, CancellationToken ct)
+    {
+        var subjectToken = form["subject_token"].ToString();
+        var subjectTokenType = form["subject_token_type"].ToString();
+
+        if (string.IsNullOrEmpty(subjectToken))
+            return TokenError(OAuthError.InvalidRequest("subject_token is required"), 400);
+        if (string.IsNullOrEmpty(subjectTokenType))
+            return TokenError(OAuthError.InvalidRequest("subject_token_type is required"), 400);
+
+        // Validate the subject token and extract the subject
+        string? subject = null;
+        IReadOnlyList<string> scopes;
+
+        switch (subjectTokenType)
+        {
+            case TokenTypeAccessToken:
+            {
+                var at = await _accessTokenStore.FindAsync(subjectToken, ct);
+                if (at is null || at.ExpiresAt < DateTimeOffset.UtcNow)
+                {
+                    // Try validating as JWT AT
+                    var principal = await _tokenFactory.ValidateAccessTokenAsync(subjectToken, ct);
+                    if (principal is null)
+                        return TokenError(OAuthError.InvalidGrant("subject_token is invalid or expired"), 400);
+                    subject = principal.FindFirst("sub")?.Value;
+                    scopes = (principal.FindFirst("scope")?.Value ?? string.Empty)
+                        .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                }
+                else
+                {
+                    subject = at.Subject;
+                    scopes = at.Scopes;
+                }
+                break;
+            }
+            case TokenTypeRefreshToken:
+            {
+                var rt = await _refreshTokenStore.FindAsync(subjectToken, ct);
+                if (rt is null || rt.ExpiresAt < DateTimeOffset.UtcNow)
+                    return TokenError(OAuthError.InvalidGrant("subject_token is invalid or expired"), 400);
+                subject = rt.Subject;
+                scopes = rt.Scopes;
+                break;
+            }
+            case TokenTypeIdToken:
+            {
+                var principal = await _tokenFactory.ValidateIdTokenHintAsync(subjectToken, ct);
+                if (principal is null)
+                    return TokenError(OAuthError.InvalidGrant("subject_token (id_token) is invalid"), 400);
+                subject = principal.FindFirst("sub")?.Value;
+                scopes = [];
+                break;
+            }
+            default:
+                return TokenError(OAuthError.InvalidTokenType(
+                    $"Unsupported subject_token_type: {subjectTokenType}"), 400);
+        }
+
+        // Requested scope (optional — default to subject token scopes)
+        var scopeStr = form["scope"].ToString();
+        var requestedScopes = string.IsNullOrEmpty(scopeStr)
+            ? scopes.ToList()
+            : scopeStr.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+        var opts = _options.Value;
+        var tokenId = GenerateId();
+        var atValue = _tokenFactory.CreateAccessToken(tokenId, subject, client.ClientId, requestedScopes);
+
+        var newAt = new AccessToken
+        {
+            TokenId = tokenId,
+            GrantId = tokenId,
+            ClientId = client.ClientId,
+            Subject = subject,
+            Scopes = requestedScopes,
+            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
+        };
+        await _accessTokenStore.StoreAsync(tokenId, newAt,
+            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+
+        var body = BuildTokenBody(atValue, opts.AccessTokenLifetimeSeconds, null, null);
+        body["issued_token_type"] = TokenTypeAccessToken;
+        return Results.Json(body, statusCode: 200);
+    }
+
+    // ── jwt-bearer grant (RFC 7523) ────────────────────────────────────────────
+
+    private async Task<IResult> HandleJwtBearerAsync(
+        IFormCollection form, Client client, CancellationToken ct)
+    {
+        var assertion = form["assertion"].ToString();
+        if (string.IsNullOrEmpty(assertion))
+            return TokenError(OAuthError.InvalidRequest("assertion is required"), 400);
+
+        if (string.IsNullOrEmpty(client.JwksJson))
+            return TokenError(OAuthError.InvalidClient(
+                "client has no JWKS configured; cannot verify JWT assertion"), 401);
+
+        Microsoft.IdentityModel.Tokens.JsonWebKeySet jwks;
+        try { jwks = new Microsoft.IdentityModel.Tokens.JsonWebKeySet(client.JwksJson); }
+        catch { return TokenError(OAuthError.InvalidClient("client JWKS is malformed"), 401); }
+
+        var handler = new Microsoft.IdentityModel.JsonWebTokens.JsonWebTokenHandler();
+        var opts = _options.Value;
+
+        var result = await handler.ValidateTokenAsync(assertion,
+            new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+            {
+                ValidIssuer = client.ClientId,
+                ValidAudience = opts.Issuer.TrimEnd('/'),
+                IssuerSigningKeys = jwks.GetSigningKeys(),
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromSeconds(30),
+            });
+
+        if (!result.IsValid)
+            return TokenError(OAuthError.InvalidGrant(
+                result.Exception?.Message ?? "JWT assertion validation failed"), 400);
+
+        var subject = result.Claims.TryGetValue("sub", out var subVal)
+            ? subVal?.ToString()
+            : null;
+
+        var scopeStr = form["scope"].ToString();
+        var requestedScopes = string.IsNullOrEmpty(scopeStr)
+            ? client.AllowedScopes.ToList()
+            : scopeStr.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+        var registeredScopes = opts.Scopes.Select(s => s.Name).ToHashSet();
+        var unknownScopes = requestedScopes.Where(s => !registeredScopes.Contains(s)).ToList();
+        if (unknownScopes.Count > 0)
+            return TokenError(OAuthError.InvalidScope($"Unknown scope(s): {string.Join(" ", unknownScopes)}"), 400);
+
+        var tokenId = GenerateId();
+        var atValue = _tokenFactory.CreateAccessToken(tokenId, subject, client.ClientId, requestedScopes);
+
+        var at = new AccessToken
+        {
+            TokenId = tokenId,
+            GrantId = tokenId,
+            ClientId = client.ClientId,
+            Subject = subject,
+            Scopes = requestedScopes,
+            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
+        };
+        await _accessTokenStore.StoreAsync(tokenId, at,
+            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+
+        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, null, null);
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private static IResult TokenSuccess(
+        string accessToken, int expiresIn, string? refreshToken, string? idToken)
+    {
+        var body = BuildTokenBody(accessToken, expiresIn, refreshToken, idToken);
+        return Results.Json(body, statusCode: 200);
+    }
+
+    private static Dictionary<string, object> BuildTokenBody(
         string accessToken, int expiresIn, string? refreshToken, string? idToken)
     {
         var body = new Dictionary<string, object>
@@ -249,7 +434,7 @@ public sealed class TokenEndpointHandler
         };
         if (refreshToken is not null) body["refresh_token"] = refreshToken;
         if (idToken is not null) body["id_token"] = idToken;
-        return Results.Json(body, statusCode: 200);
+        return body;
     }
 
     private static IResult TokenError(OAuthError error, int status) =>
