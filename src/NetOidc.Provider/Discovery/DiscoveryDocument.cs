@@ -80,4 +80,50 @@ public sealed class DiscoveryDocument
     [JsonPropertyName("backchannel_logout_session_supported")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool BackChannelLogoutSessionSupported { get; init; }
+
+    // ── Phase 4 ────────────────────────────────────────────────────────────────
+
+    [JsonPropertyName("pushed_authorization_request_endpoint")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PushedAuthorizationRequestEndpoint { get; init; }
+
+    [JsonPropertyName("require_pushed_authorization_requests")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool RequirePushedAuthorizationRequests { get; init; }
+
+    [JsonPropertyName("request_parameter_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool RequestParameterSupported { get; init; }
+
+    [JsonPropertyName("request_object_signing_alg_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? RequestObjectSigningAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("request_object_encryption_alg_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? RequestObjectEncryptionAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("request_object_encryption_enc_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? RequestObjectEncryptionEncValuesSupported { get; init; }
+
+    [JsonPropertyName("authorization_signing_alg_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? AuthorizationSigningAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("resource_indicators_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ResourceIndicatorsSupported { get; init; }
+
+    [JsonPropertyName("authorization_details_types_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? AuthorizationDetailsTypesSupported { get; init; }
+
+    [JsonPropertyName("id_token_encryption_alg_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? IdTokenEncryptionAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("id_token_encryption_enc_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? IdTokenEncryptionEncValuesSupported { get; init; }
 }

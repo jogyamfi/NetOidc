@@ -78,6 +78,28 @@ internal sealed class TestWebApp : IAsyncDisposable
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
                 },
+                // Phase 4 PAR client
+                new Client
+                {
+                    ClientId = "par-client",
+                    ClientSecret = "par-secret",
+                    AllowedGrantTypes = ["authorization_code"],
+                    AllowedScopes = ["openid", "profile"],
+                    RedirectUris = ["https://client.test.example.com/callback"],
+                    TokenEndpointAuthMethod = "client_secret_basic",
+                    RequirePkce = false,
+                },
+                // Phase 4 token-exchange client
+                new Client
+                {
+                    ClientId = "exchange-client",
+                    ClientSecret = "exchange-secret",
+                    AllowedGrantTypes = ["authorization_code", "client_credentials"],
+                    AllowedScopes = ["openid", "profile"],
+                    RedirectUris = ["https://client.test.example.com/callback"],
+                    TokenEndpointAuthMethod = "client_secret_basic",
+                    RequirePkce = false,
+                },
             ];
 
             opts.Scopes =

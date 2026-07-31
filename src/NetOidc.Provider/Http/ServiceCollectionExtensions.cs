@@ -11,6 +11,7 @@ using NetOidc.Provider.Discovery;
 using NetOidc.Provider.Interaction;
 using NetOidc.Provider.Jose;
 using NetOidc.Provider.Logout;
+using NetOidc.Provider.Par;
 using NetOidc.Provider.Session;
 using NetOidc.Provider.Token;
 using NetOidc.Provider.UserInfo;
@@ -36,6 +37,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IAdapter<AuthorizationCode>, InMemoryAdapter<AuthorizationCode>>();
         services.TryAddSingleton<IAdapter<RefreshToken>, InMemoryAdapter<RefreshToken>>();
         services.TryAddSingleton<IAdapter<OidcSession>, InMemoryAdapter<OidcSession>>();
+        services.TryAddSingleton<IAdapter<PushedAuthorizationRequest>, InMemoryAdapter<PushedAuthorizationRequest>>();
 
         // Client store: InMemoryDynamicClientStore satisfies both IClientStore and IDynamicClientStore.
         services.TryAddSingleton<InMemoryDynamicClientStore>();
@@ -44,7 +46,9 @@ public static class ServiceCollectionExtensions
 
         // JOSE
         services.TryAddSingleton<SigningKeyProvider>();
+        services.TryAddSingleton<EncryptionKeyProvider>();
         services.TryAddSingleton<TokenFactory>();
+        services.TryAddSingleton<RequestObjectValidator>();
 
         // Discovery
         services.TryAddSingleton<DiscoveryService>();
@@ -70,6 +74,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<RevocationEndpointHandler>();
         services.TryAddSingleton<DynamicRegistrationEndpointHandler>();
         services.TryAddSingleton<LogoutEndpointHandler>();
+        services.TryAddSingleton<ParEndpointHandler>();
 
         return new NetOidcBuilder(services);
     }

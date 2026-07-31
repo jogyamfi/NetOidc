@@ -19,4 +19,12 @@ public sealed class AccessToken
     public TokenFormat Format { get; init; } = TokenFormat.Jwt;
 
     public DateTimeOffset ExpiresAt { get; init; }
+
+    // ── Phase 4 ──────────────────────────────────────────────────────────────
+
+    /// <summary>Resource indicator bound to this token (RFC 8707).</summary>
+    public string? Resource { get; init; }
+
+    /// <summary>JSON-encoded <c>authorization_details</c> array (RFC 9396).</summary>
+    public string? AuthorizationDetailsJson { get; init; }
 }
