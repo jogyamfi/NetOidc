@@ -19,4 +19,6 @@ public sealed class AuthorizationCode
     public string? Acr { get; init; }
     /// <summary>Authentication Methods References asserted by the interaction service.</summary>
     public IReadOnlyList<string>? Amr { get; init; }
+    /// <summary>OIDC session ID — included in ID tokens as the <c>sid</c> claim when set.</summary>
+    public string? SessionId { get; init; }
 }

@@ -5,7 +5,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Authorization;
 using NetOidc.Provider.Configuration;
+using NetOidc.Provider.Dcr;
 using NetOidc.Provider.Discovery;
+using NetOidc.Provider.Logout;
 using NetOidc.Provider.Token;
 using NetOidc.Provider.UserInfo;
 
@@ -53,6 +55,38 @@ public static class EndpointRouteBuilderExtensions
         endpoints.MapPost(opts.RevocationEndpoint,
             (RevocationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct));
+
+        // RP-Initiated Logout (active when LogoutEnabled)
+        if (opts.LogoutEnabled)
+        {
+            endpoints.MapMethods(opts.EndSessionEndpoint, ["GET", "POST"],
+                (LogoutEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
+                    h.HandleAsync(ctx, ct));
+        }
+
+        // Dynamic Client Registration (RFC 7591/7592, active when DcrEnabled)
+        if (opts.DcrEnabled)
+        {
+            var regPath = opts.RegistrationEndpoint;
+            endpoints.MapPost(regPath,
+                (DynamicRegistrationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
+                    h.HandleCreateAsync(ctx, ct));
+
+            endpoints.MapGet(regPath + "/{clientId}",
+                (DynamicRegistrationEndpointHandler h, HttpContext ctx,
+                 string clientId, CancellationToken ct) =>
+                    h.HandleGetAsync(ctx, clientId, ct));
+
+            endpoints.MapMethods(regPath + "/{clientId}", ["PUT"],
+                (DynamicRegistrationEndpointHandler h, HttpContext ctx,
+                 string clientId, CancellationToken ct) =>
+                    h.HandleUpdateAsync(ctx, clientId, ct));
+
+            endpoints.MapDelete(regPath + "/{clientId}",
+                (DynamicRegistrationEndpointHandler h, HttpContext ctx,
+                 string clientId, CancellationToken ct) =>
+                    h.HandleDeleteAsync(ctx, clientId, ct));
+        }
 
         return endpoints;
     }

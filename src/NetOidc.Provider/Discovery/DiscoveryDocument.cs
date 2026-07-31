@@ -64,4 +64,20 @@ public sealed class DiscoveryDocument
 
     [JsonPropertyName("authorization_response_iss_parameter_supported")]
     public bool AuthorizationResponseIssParameterSupported { get; init; }
+
+    [JsonPropertyName("end_session_endpoint")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? EndSessionEndpoint { get; init; }
+
+    [JsonPropertyName("registration_endpoint")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RegistrationEndpoint { get; init; }
+
+    [JsonPropertyName("backchannel_logout_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool BackChannelLogoutSupported { get; init; }
+
+    [JsonPropertyName("backchannel_logout_session_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool BackChannelLogoutSessionSupported { get; init; }
 }
