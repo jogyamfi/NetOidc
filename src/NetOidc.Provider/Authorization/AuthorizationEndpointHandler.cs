@@ -11,6 +11,7 @@ using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
 using NetOidc.Provider.Interaction;
 using NetOidc.Provider.Jose;
+using NetOidc.Provider.Session;
 
 namespace NetOidc.Provider.Authorization;
 
@@ -33,6 +34,7 @@ public sealed class AuthorizationEndpointHandler
     private readonly TokenFactory _tokenFactory;
     private readonly SubjectIdentifierService _subjectIdentifier;
     private readonly IAdapter<AccessToken> _accessTokenStore;
+    private readonly SessionService _sessionService;
 
     public AuthorizationEndpointHandler(
         IOptions<ProviderOptions> options,
@@ -41,7 +43,8 @@ public sealed class AuthorizationEndpointHandler
         IInteractionService interactionService,
         TokenFactory tokenFactory,
         SubjectIdentifierService subjectIdentifier,
-        IAdapter<AccessToken> accessTokenStore)
+        IAdapter<AccessToken> accessTokenStore,
+        SessionService sessionService)
     {
         _options = options;
         _clientStore = clientStore;
@@ -50,6 +53,7 @@ public sealed class AuthorizationEndpointHandler
         _tokenFactory = tokenFactory;
         _subjectIdentifier = subjectIdentifier;
         _accessTokenStore = accessTokenStore;
+        _sessionService = sessionService;
     }
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
@@ -173,6 +177,10 @@ public sealed class AuthorizationEndpointHandler
         var grantedScopes = interaction.GrantedScopes;
         var authTime = DateTimeOffset.UtcNow;
 
+        // Create or update the OIDC session (no-op when LogoutEnabled is false).
+        var session = await _sessionService.EnsureSessionAsync(context, effectiveSub, clientId, ct);
+        var sid = session?.SessionId;
+
         var response = new Dictionary<string, string?>();
         if (!string.IsNullOrEmpty(state)) response["state"] = state;
 
@@ -200,6 +208,7 @@ public sealed class AuthorizationEndpointHandler
                 ClaimsRequest = string.IsNullOrEmpty(claimsParam) ? null : claimsParam,
                 Acr = interaction.Acr,
                 Amr = interaction.Amr,
+                SessionId = sid,
             };
             await _codeStore.StoreAsync(codeValue, authCode,
                 TimeSpan.FromSeconds(opts.AuthorizationCodeLifetimeSeconds), ct);
@@ -237,7 +246,8 @@ public sealed class AuthorizationEndpointHandler
                 nonce: string.IsNullOrEmpty(nonce) ? null : nonce,
                 authTime: authTime,
                 acr: interaction.Acr,
-                amr: interaction.Amr);
+                amr: interaction.Amr,
+                sid: sid);
             response["id_token"] = idToken;
         }
 

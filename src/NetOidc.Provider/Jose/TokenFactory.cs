@@ -55,7 +55,8 @@ public sealed class TokenFactory
         DateTimeOffset authTime,
         string? acr = null,
         IReadOnlyList<string>? amr = null,
-        IReadOnlyDictionary<string, object>? additionalClaims = null)
+        IReadOnlyDictionary<string, object>? additionalClaims = null,
+        string? sid = null)
     {
         var opts = _options.Value;
         var now = DateTime.UtcNow;
@@ -67,6 +68,7 @@ public sealed class TokenFactory
         if (nonce is not null) claims["nonce"] = nonce;
         if (acr is not null) claims["acr"] = acr;
         if (amr is not null && amr.Count > 0) claims["amr"] = amr;
+        if (sid is not null) claims["sid"] = sid;
         if (additionalClaims is not null)
             foreach (var kv in additionalClaims)
                 claims[kv.Key] = kv.Value;
@@ -81,6 +83,58 @@ public sealed class TokenFactory
             Claims = claims,
         };
         return _handler.CreateToken(descriptor);
+    }
+
+    /// <summary>
+    /// Issues a Back-Channel Logout token (OIDC Back-Channel Logout §2.4).
+    /// </summary>
+    public string CreateLogoutToken(
+        string subject, string clientId, string jti, string? sid,
+        int lifetimeSeconds)
+    {
+        var opts = _options.Value;
+        var now = DateTime.UtcNow;
+        // "events" claim must be { "http://schemas.openid.net/event/backchannel-logout": {} }
+        var events = new Dictionary<string, object>
+        {
+            ["http://schemas.openid.net/event/backchannel-logout"] = new { },
+        };
+        var claims = new Dictionary<string, object>
+        {
+            ["sub"] = subject,
+            ["jti"] = jti,
+            ["events"] = events,
+        };
+        if (sid is not null) claims["sid"] = sid;
+
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Issuer = opts.Issuer,
+            Audience = clientId,
+            IssuedAt = now,
+            Expires = now.AddSeconds(lifetimeSeconds),
+            SigningCredentials = _keyProvider.GetSigningCredentials(),
+            Claims = claims,
+        };
+        return _handler.CreateToken(descriptor);
+    }
+
+    /// <summary>
+    /// Validates an ID token (as id_token_hint). Returns the <see cref="ClaimsPrincipal"/>
+    /// on success, or <c>null</c> if validation fails (lifetime errors are tolerated).
+    /// </summary>
+    public async Task<ClaimsPrincipal?> ValidateIdTokenHintAsync(
+        string token, CancellationToken ct = default)
+    {
+        var opts = _options.Value;
+        var result = await _handler.ValidateTokenAsync(token, new TokenValidationParameters
+        {
+            ValidIssuer = opts.Issuer,
+            IssuerSigningKey = _keyProvider.GetValidationKey(),
+            ValidateAudience = false,   // audience is the client_id — we don't restrict here
+            ValidateLifetime = false,   // hints may be expired
+        });
+        return result.IsValid ? new ClaimsPrincipal(result.ClaimsIdentity) : null;
     }
 
     /// <summary>

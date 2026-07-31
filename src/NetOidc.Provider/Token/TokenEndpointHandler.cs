@@ -137,7 +137,7 @@ public sealed class TokenEndpointHandler
         if (authCode.Scopes.Contains("openid"))
             idToken = _tokenFactory.CreateIdToken(
                 authCode.Subject, client.ClientId, authCode.Nonce, authCode.AuthTime,
-                acr: authCode.Acr, amr: authCode.Amr);
+                acr: authCode.Acr, amr: authCode.Amr, sid: authCode.SessionId);
 
         return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshTokenValue, idToken);
     }

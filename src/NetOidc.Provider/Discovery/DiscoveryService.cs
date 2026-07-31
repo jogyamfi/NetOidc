@@ -64,6 +64,10 @@ public sealed class DiscoveryService
             ResponseModesSupported = ["query", "fragment", "form_post"],
             ClaimsParameterSupported = true,
             AuthorizationResponseIssParameterSupported = opts.IssuerIdentificationEnabled,
+            EndSessionEndpoint = opts.LogoutEnabled ? Abs(opts.EndSessionEndpoint) : null,
+            RegistrationEndpoint = opts.DcrEnabled ? Abs(opts.RegistrationEndpoint) : null,
+            BackChannelLogoutSupported = opts.BackChannelLogoutEnabled,
+            BackChannelLogoutSessionSupported = opts.BackChannelLogoutEnabled,
         };
     }
 

@@ -19,6 +19,50 @@ public sealed class ProviderOptions
     public string RevocationEndpoint { get; set; } = "/connect/revoke";
     public string EndSessionEndpoint { get; set; } = "/connect/end_session";
 
+    // -- DCR (RFC 7591 / RFC 7592) --
+
+    /// <summary>When true, <c>POST /connect/register</c> is active.</summary>
+    public bool DcrEnabled { get; set; } = false;
+
+    public string RegistrationEndpoint { get; set; } = "/connect/register";
+
+    /// <summary>
+    /// When set, every registration request must carry this value as a Bearer token.
+    /// Set to <c>null</c> to allow open registration.
+    /// </summary>
+    public string? InitialAccessToken { get; set; }
+
+    /// <summary>
+    /// When true, the registration_access_token is rotated on every PUT (update) request.
+    /// </summary>
+    public bool DcrRotateRegistrationTokens { get; set; } = false;
+
+    /// <summary>
+    /// Lifetime in seconds of dynamically issued client_secrets; 0 = non-expiring.
+    /// </summary>
+    public int ClientSecretLifetimeSeconds { get; set; } = 0;
+
+    /// <summary>
+    /// Optional hook called after client metadata is built. Throw to reject registration.
+    /// </summary>
+    public Func<Abstractions.Models.Client, CancellationToken, Task>? ValidateDynamicClient { get; set; }
+
+    // -- Logout / Session --
+
+    /// <summary>
+    /// When true, the end_session endpoint is active and OIDC sessions are tracked.
+    /// </summary>
+    public bool LogoutEnabled { get; set; } = false;
+
+    /// <summary>
+    /// When true (and <see cref="LogoutEnabled"/> is true), back-channel logout tokens
+    /// are sent to clients that have a <c>backchannel_logout_uri</c> registered.
+    /// </summary>
+    public bool BackChannelLogoutEnabled { get; set; } = false;
+
+    /// <summary>Lifetime in seconds of back-channel logout tokens (default 120 s).</summary>
+    public int LogoutTokenLifetimeSeconds { get; set; } = 120;
+
     // -- Interaction --
 
     /// <summary>Path the provider redirects to when the user is not authenticated.</summary>
