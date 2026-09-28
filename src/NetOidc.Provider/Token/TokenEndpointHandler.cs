@@ -27,33 +27,39 @@ public sealed class TokenEndpointHandler
     private const string TokenTypeRefreshToken = "urn:ietf:params:oauth:token-type:refresh_token";
     private const string TokenTypeIdToken = "urn:ietf:params:oauth:token-type:id_token";
 
+    private const string GrantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange";
+    private const string GrantTypeJwtBearer = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+
     private readonly IOptions<ProviderOptions> _options;
     private readonly IClientStore _clientStore;
     private readonly IAdapter<AuthorizationCode> _codeStore;
-    private readonly IAdapter<RefreshToken> _refreshTokenStore;
+    private readonly RefreshTokenService _refreshTokens;
     private readonly IAdapter<AccessToken> _accessTokenStore;
     private readonly IAdapter<DeviceCode> _deviceCodeStore;
     private readonly IAdapter<BackchannelAuthenticationRequest> _cibaStore;
     private readonly TokenFactory _tokenFactory;
     private readonly DPopProofValidator _dpopValidator;
     private readonly IProviderEventSink _events;
+    private readonly IReplayCache _replayCache;
 
     public TokenEndpointHandler(
         IOptions<ProviderOptions> options,
         IClientStore clientStore,
         IAdapter<AuthorizationCode> codeStore,
-        IAdapter<RefreshToken> refreshTokenStore,
+        RefreshTokenService refreshTokens,
         IAdapter<AccessToken> accessTokenStore,
         IAdapter<DeviceCode> deviceCodeStore,
         IAdapter<BackchannelAuthenticationRequest> cibaStore,
         TokenFactory tokenFactory,
         DPopProofValidator dpopValidator,
-        IProviderEventSink events)
+        IProviderEventSink events,
+        IReplayCache replayCache)
     {
+        _replayCache = replayCache;
         _options = options;
         _clientStore = clientStore;
         _codeStore = codeStore;
-        _refreshTokenStore = refreshTokenStore;
+        _refreshTokens = refreshTokens;
         _accessTokenStore = accessTokenStore;
         _deviceCodeStore = deviceCodeStore;
         _cibaStore = cibaStore;
@@ -190,23 +196,11 @@ public sealed class TokenEndpointHandler
         await _accessTokenStore.StoreAsync(tokenId, at,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
 
-        string? refreshTokenValue = null;
-        if (opts.IssueRefreshTokens)
-        {
-            refreshTokenValue = GenerateId();
-            var rt = new RefreshToken
-            {
-                TokenId = refreshTokenValue,
-                ClientId = client.ClientId,
-                Subject = authCode.Subject,
-                Scopes = authCode.Scopes,
-                ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.RefreshTokenLifetimeSeconds),
-                Resources = authCode.Resources,
-                AuthorizationDetailsJson = authCode.AuthorizationDetailsJson,
-            };
-            await _refreshTokenStore.StoreAsync(refreshTokenValue, rt,
-                TimeSpan.FromSeconds(opts.RefreshTokenLifetimeSeconds), ct);
-        }
+        string? refreshTokenValue = opts.IssueRefreshTokens
+            ? await _refreshTokens.IssueAsync(
+                client, authCode.Subject, authCode.Scopes, authCode.Resources,
+                authCode.AuthorizationDetailsJson, cnfJwkThumbprint, cnfX5tS256, ct)
+            : null;
 
         string? idToken = null;
         if (authCode.Scopes.Contains("openid"))
@@ -238,15 +232,10 @@ public sealed class TokenEndpointHandler
         if (string.IsNullOrEmpty(rtValue))
             return TokenError(OAuthError.InvalidRequest("refresh_token is required"), 400);
 
-        var rt = await _refreshTokenStore.ConsumeAsync(rtValue, ct);
-        if (rt is null)
-            return TokenError(OAuthError.InvalidGrant("refresh token not found or already used"), 400);
-
-        if (rt.ClientId != client.ClientId)
-            return TokenError(OAuthError.InvalidGrant("client_id mismatch"), 400);
-
-        if (rt.ExpiresAt < DateTimeOffset.UtcNow)
-            return TokenError(OAuthError.InvalidGrant("refresh token expired"), 400);
+        var rotation = await _refreshTokens.RotateAsync(rtValue, client, cnfJwkThumbprint, cnfX5tS256, ct);
+        if (!rotation.Succeeded)
+            return TokenError(OAuthError.InvalidGrant(rotation.Error), 400);
+        var rt = rotation.Token!;
 
         var opts = _options.Value;
         var newTokenId = GenerateId();
@@ -270,19 +259,8 @@ public sealed class TokenEndpointHandler
         await _accessTokenStore.StoreAsync(newTokenId, newAt,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
 
-        var newRtId = GenerateId();
-        var newRt = new RefreshToken
-        {
-            TokenId = newRtId,
-            ClientId = client.ClientId,
-            Subject = rt.Subject,
-            Scopes = rt.Scopes,
-            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.RefreshTokenLifetimeSeconds),
-            Resources = rt.Resources,
-            AuthorizationDetailsJson = rt.AuthorizationDetailsJson,
-        };
-        await _refreshTokenStore.StoreAsync(newRtId, newRt,
-            TimeSpan.FromSeconds(opts.RefreshTokenLifetimeSeconds), ct);
+        // Keep the family; a bound token stays bound to the key it was issued for.
+        var newRtId = await _refreshTokens.IssueSuccessorAsync(client, rt, ct);
 
         await _events.TokenIssuedAsync(new TokenIssuedEvent(
             client.ClientId, rt.Subject, "refresh_token",
@@ -351,6 +329,9 @@ public sealed class TokenEndpointHandler
         string? cnfJwkThumbprint, string? cnfX5tS256,
         CancellationToken ct)
     {
+        if (!client.AllowedGrantTypes.Contains(GrantTypeTokenExchange))
+            return TokenError(OAuthError.UnauthorizedClient("token-exchange not allowed for this client"), 400);
+
         var subjectToken = form["subject_token"].ToString();
         var subjectTokenType = form["subject_token_type"].ToString();
 
@@ -359,46 +340,48 @@ public sealed class TokenEndpointHandler
         if (string.IsNullOrEmpty(subjectTokenType))
             return TokenError(OAuthError.InvalidRequest("subject_token_type is required"), 400);
 
-        string? subject = null;
-        IReadOnlyList<string> scopes;
+        // Delegation (actor_token) is not implemented; refuse rather than silently ignore it.
+        if (!string.IsNullOrEmpty(form["actor_token"].ToString()))
+            return TokenError(OAuthError.InvalidRequest("actor_token is not supported"), 400);
+
+        string? subject;
+        string subjectClientId;
+        IReadOnlyList<string> subjectScopes;
 
         switch (subjectTokenType)
         {
             case TokenTypeAccessToken:
             {
-                var at = await _accessTokenStore.FindAsync(subjectToken, ct);
-                if (at is null || at.ExpiresAt < DateTimeOffset.UtcNow)
-                {
-                    var principal = await _tokenFactory.ValidateAccessTokenAsync(subjectToken, ct);
-                    if (principal is null)
-                        return TokenError(OAuthError.InvalidGrant("subject_token is invalid or expired"), 400);
-                    subject = principal.FindFirst("sub")?.Value;
-                    scopes = (principal.FindFirst("scope")?.Value ?? string.Empty)
-                        .Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                }
-                else
-                {
-                    subject = at.Subject;
-                    scopes = at.Scopes;
-                }
+                // Validate the JWT, then require the store record so revoked tokens are refused.
+                var principal = await _tokenFactory.ValidateAccessTokenAsync(subjectToken, ct);
+                var jti = principal?.FindFirst("jti")?.Value;
+                var at = jti is null ? null : await _accessTokenStore.FindAsync(jti, ct);
+                if (at is null || at.ExpiresAt <= DateTimeOffset.UtcNow)
+                    return TokenError(OAuthError.InvalidGrant("subject_token is invalid, expired or revoked"), 400);
+                subject = at.Subject;
+                subjectClientId = at.ClientId;
+                subjectScopes = at.Scopes;
                 break;
             }
             case TokenTypeRefreshToken:
             {
-                var rt = await _refreshTokenStore.FindAsync(subjectToken, ct);
-                if (rt is null || rt.ExpiresAt < DateTimeOffset.UtcNow)
-                    return TokenError(OAuthError.InvalidGrant("subject_token is invalid or expired"), 400);
+                var rt = await _refreshTokens.FindActiveAsync(subjectToken, ct);
+                if (rt is null)
+                    return TokenError(OAuthError.InvalidGrant("subject_token is invalid, expired or revoked"), 400);
                 subject = rt.Subject;
-                scopes = rt.Scopes;
+                subjectClientId = rt.ClientId;
+                subjectScopes = rt.Scopes;
                 break;
             }
             case TokenTypeIdToken:
             {
-                var principal = await _tokenFactory.ValidateIdTokenHintAsync(subjectToken, ct);
-                if (principal is null)
-                    return TokenError(OAuthError.InvalidGrant("subject_token (id_token) is invalid"), 400);
+                var principal = await _tokenFactory.ValidateIdTokenAsync(subjectToken, ct);
+                var aud = principal?.FindFirst("azp")?.Value ?? principal?.FindFirst("aud")?.Value;
+                if (principal is null || aud is null)
+                    return TokenError(OAuthError.InvalidGrant("subject_token (id_token) is invalid or expired"), 400);
                 subject = principal.FindFirst("sub")?.Value;
-                scopes = [];
+                subjectClientId = aud;
+                subjectScopes = ["openid"];
                 break;
             }
             default:
@@ -406,12 +389,36 @@ public sealed class TokenEndpointHandler
                     $"Unsupported subject_token_type: {subjectTokenType}"), 400);
         }
 
+        // The new token can never carry more than the subject token and the client allow.
+        var ceiling = subjectScopes.Where(client.AllowedScopes.Contains).ToList();
         var scopeStr = form["scope"].ToString();
-        var requestedScopes = string.IsNullOrEmpty(scopeStr)
-            ? scopes.ToList()
-            : scopeStr.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        List<string> requestedScopes;
+        if (string.IsNullOrEmpty(scopeStr))
+        {
+            requestedScopes = ceiling;
+        }
+        else
+        {
+            requestedScopes = scopeStr.Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct().ToList();
+            var excess = requestedScopes.Where(s => !ceiling.Contains(s)).ToList();
+            if (excess.Count > 0)
+                return TokenError(OAuthError.InvalidScope(
+                    $"Scope(s) exceed the subject token or client grant: {string.Join(" ", excess)}"), 400);
+        }
 
         var opts = _options.Value;
+        var exchange = new TokenExchangeContext(
+            client.ClientId, subjectClientId, subject, subjectTokenType,
+            subjectScopes, requestedScopes,
+            form["audience"].Where(a => !string.IsNullOrEmpty(a)).Select(a => a!).ToList(),
+            form["resource"].Where(r => !string.IsNullOrEmpty(r)).Select(r => r!).ToList());
+
+        var permitted = opts.AuthorizeTokenExchange is null
+            ? subjectClientId == client.ClientId
+            : await opts.AuthorizeTokenExchange(exchange, ct);
+        if (!permitted)
+            return TokenError(OAuthError.InvalidGrant("client is not permitted to exchange this subject_token"), 400);
+
         var tokenId = GenerateId();
         var atValue = _tokenFactory.CreateAccessToken(
             tokenId, subject, client.ClientId, requestedScopes,
@@ -444,6 +451,9 @@ public sealed class TokenEndpointHandler
         string? cnfJwkThumbprint, string? cnfX5tS256,
         CancellationToken ct)
     {
+        if (!client.AllowedGrantTypes.Contains(GrantTypeJwtBearer))
+            return TokenError(OAuthError.UnauthorizedClient("jwt-bearer not allowed for this client"), 400);
+
         var assertion = form["assertion"].ToString();
         if (string.IsNullOrEmpty(assertion))
             return TokenError(OAuthError.InvalidRequest("assertion is required"), 400);
@@ -477,15 +487,37 @@ public sealed class TokenEndpointHandler
             ? subVal?.ToString()
             : null;
 
+        // RFC 7523 §3: jti enables one-time use; require it and refuse replays.
+        var jti = result.Claims.TryGetValue("jti", out var jtiVal) ? jtiVal?.ToString() : null;
+        if (string.IsNullOrEmpty(jti))
+            return TokenError(OAuthError.InvalidGrant("assertion must contain a jti claim"), 400);
+        var assertionExpiry = result.SecurityToken.ValidTo == DateTime.MinValue
+            ? DateTimeOffset.UtcNow.AddMinutes(10)
+            : new DateTimeOffset(result.SecurityToken.ValidTo, TimeSpan.Zero).AddSeconds(30);
+        if (!await _replayCache.TryAddAsync($"jwt-bearer:{client.ClientId}:{jti}", assertionExpiry, ct))
+            return TokenError(OAuthError.InvalidGrant("assertion has already been used"), 400);
+
         var scopeStr = form["scope"].ToString();
         var requestedScopes = string.IsNullOrEmpty(scopeStr)
             ? client.AllowedScopes.ToList()
-            : scopeStr.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+            : scopeStr.Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct().ToList();
 
         var registeredScopes = opts.Scopes.Select(s => s.Name).ToHashSet();
         var unknownScopes = requestedScopes.Where(s => !registeredScopes.Contains(s)).ToList();
         if (unknownScopes.Count > 0)
             return TokenError(OAuthError.InvalidScope($"Unknown scope(s): {string.Join(" ", unknownScopes)}"), 400);
+
+        var disallowedScopes = requestedScopes.Where(s => !client.AllowedScopes.Contains(s)).ToList();
+        if (disallowedScopes.Count > 0)
+            return TokenError(OAuthError.InvalidScope(
+                $"Client not authorized for scope(s): {string.Join(" ", disallowedScopes)}"), 400);
+
+        // Only the operator can say which subjects a client may speak for.
+        var permitted = opts.AuthorizeJwtBearerSubject is not null &&
+            await opts.AuthorizeJwtBearerSubject(
+                new JwtBearerContext(client.ClientId, subject, requestedScopes), ct);
+        if (!permitted)
+            return TokenError(OAuthError.InvalidGrant("client is not permitted to assert this subject"), 400);
 
         var tokenId = GenerateId();
         var atValue = _tokenFactory.CreateAccessToken(
@@ -565,8 +597,9 @@ public sealed class TokenEndpointHandler
                 return TokenError(OAuthError.AccessDenied("user denied the authorization request"), 400);
         }
 
-        // Approved — consume and issue tokens
-        await _deviceCodeStore.RemoveAsync(deviceCodeValue, ct);
+        // Approved — consume atomically so concurrent polls cannot both redeem it.
+        if (await _deviceCodeStore.ConsumeAsync(deviceCodeValue, ct) is null)
+            return TokenError(OAuthError.InvalidGrant("device code already redeemed"), 400);
 
         var tokenId = GenerateId();
         var atValue = _tokenFactory.CreateAccessToken(
@@ -587,21 +620,11 @@ public sealed class TokenEndpointHandler
         await _accessTokenStore.StoreAsync(tokenId, at,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
 
-        string? refreshTokenValue = null;
-        if (opts.IssueRefreshTokens)
-        {
-            refreshTokenValue = GenerateId();
-            var rt = new RefreshToken
-            {
-                TokenId = refreshTokenValue,
-                ClientId = client.ClientId,
-                Subject = deviceCode.Subject!,
-                Scopes = deviceCode.GrantedScopes,
-                ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.RefreshTokenLifetimeSeconds),
-            };
-            await _refreshTokenStore.StoreAsync(refreshTokenValue, rt,
-                TimeSpan.FromSeconds(opts.RefreshTokenLifetimeSeconds), ct);
-        }
+        string? refreshTokenValue = opts.IssueRefreshTokens
+            ? await _refreshTokens.IssueAsync(
+                client, deviceCode.Subject!, deviceCode.GrantedScopes, resources: [],
+                authorizationDetailsJson: null, cnfJwkThumbprint, cnfX5tS256, ct)
+            : null;
 
         string? idToken = null;
         if (deviceCode.GrantedScopes.Contains("openid"))
@@ -669,8 +692,9 @@ public sealed class TokenEndpointHandler
                 return TokenError(OAuthError.AccessDenied("user denied the authentication request"), 400);
         }
 
-        // Approved — consume and issue tokens
-        await _cibaStore.RemoveAsync(authReqId, ct);
+        // Approved — consume atomically so concurrent polls cannot both redeem it.
+        if (await _cibaStore.ConsumeAsync(authReqId, ct) is null)
+            return TokenError(OAuthError.InvalidGrant("auth_req_id already redeemed"), 400);
 
         var tokenId = GenerateId();
         var atValue = _tokenFactory.CreateAccessToken(
@@ -691,21 +715,11 @@ public sealed class TokenEndpointHandler
         await _accessTokenStore.StoreAsync(tokenId, at,
             TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
 
-        string? refreshTokenValue = null;
-        if (opts.IssueRefreshTokens)
-        {
-            refreshTokenValue = GenerateId();
-            var rt = new RefreshToken
-            {
-                TokenId = refreshTokenValue,
-                ClientId = client.ClientId,
-                Subject = authRequest.Subject!,
-                Scopes = authRequest.GrantedScopes,
-                ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.RefreshTokenLifetimeSeconds),
-            };
-            await _refreshTokenStore.StoreAsync(refreshTokenValue, rt,
-                TimeSpan.FromSeconds(opts.RefreshTokenLifetimeSeconds), ct);
-        }
+        string? refreshTokenValue = opts.IssueRefreshTokens
+            ? await _refreshTokens.IssueAsync(
+                client, authRequest.Subject!, authRequest.GrantedScopes, resources: [],
+                authorizationDetailsJson: null, cnfJwkThumbprint, cnfX5tS256, ct)
+            : null;
 
         string? idToken = null;
         if (authRequest.GrantedScopes.Contains("openid"))

@@ -26,7 +26,7 @@ All 191 existing tests pass; none of them cover the defects listed here.
 
 Goal: close every issue that an external attacker or a malicious registered client can exploit.
 
-- [ ] **P1.1 Open redirect on RP-initiated logout**
+- [x] **P1.1 Open redirect on RP-initiated logout**
   - Code: [LogoutEndpointHandler.cs:478-486](../src/NetOidc.Provider/Logout/LogoutEndpointHandler.cs#L478-L486)
   - Problem: `post_logout_redirect_uri` is only validated when a client is identified *and* has
     registered URIs. Without `id_token_hint`/`client_id`, or with an empty list, any URL is accepted.
@@ -36,7 +36,7 @@ Goal: close every issue that an external attacker or a malicious registered clie
     `QueryHelpers.AddQueryString` (fixes a `?` vs `&` bug as well).
   - Test: logout with an arbitrary URI and no hint → no redirect; with an unregistered URI → 400.
 
-- [ ] **P1.2 Token Exchange privilege escalation** (RFC 8693)
+- [x] **P1.2 Token Exchange privilege escalation** (RFC 8693)
   - Code: [TokenEndpointHandler.cs:349-438](../src/NetOidc.Provider/Token/TokenEndpointHandler.cs#L349-L438)
   - Problems: no `AllowedGrantTypes` check; requested `scope` is not bounded by the subject
     token's scopes or `client.AllowedScopes`; any client can exchange another client's refresh
@@ -50,7 +50,7 @@ Goal: close every issue that an external attacker or a malicious registered clie
   - Test: escalation to an unheld scope → `invalid_scope`; revoked/expired subject token →
     `invalid_grant`; foreign refresh token → `invalid_grant`.
 
-- [ ] **P1.3 JWT-bearer grant impersonation** (RFC 7523)
+- [x] **P1.3 JWT-bearer grant impersonation** (RFC 7523)
   - Code: [TokenEndpointHandler.cs:442-511](../src/NetOidc.Provider/Token/TokenEndpointHandler.cs#L442-L511)
   - Problems: any client with a JWKS can assert any `sub`; no grant-type check; no `jti`
     replay protection; scopes not bounded by `client.AllowedScopes`.
@@ -58,7 +58,7 @@ Goal: close every issue that an external attacker or a malicious registered clie
     unless configured); enforce `jti` uniqueness via the replay cache (P4.3); bound scopes.
   - Test: replayed assertion → `invalid_grant`; assertion for arbitrary sub without policy → denied.
 
-- [ ] **P1.4 Non-atomic one-time consumption** — **BREAKING** (adapter contract)
+- [x] **P1.4 Non-atomic one-time consumption** — **BREAKING** (adapter contract)
   - Code: [InMemoryAdapter.cs:37-43](../src/NetOidc.Provider/Adapters/InMemoryAdapter.cs#L37-L43),
     [IAdapter.cs](../src/NetOidc.Provider.Abstractions/Adapters/IAdapter.cs)
   - Problem: `ConsumeAsync` does Find then TryRemove, so concurrent requests can redeem the
@@ -69,7 +69,7 @@ Goal: close every issue that an external attacker or a malicious registered clie
     it (requires grant tracking, see P3.9).
   - Test: 50 parallel redemptions of one code → exactly one success.
 
-- [ ] **P1.5 OID4VCI proof signature never verified**
+- [x] **P1.5 OID4VCI proof signature never verified**
   - Code: [VciEndpointHandler.cs:453-491](../src/NetOidc.Provider/Vci/VciEndpointHandler.cs#L453-L491)
   - Problems: the proof JWT is only parsed, never cryptographically verified; nonce is optional;
     the access token's scope/`authorization_details` is not checked against the requested
@@ -79,7 +79,7 @@ Goal: close every issue that an external attacker or a malicious registered clie
     key to `IssueCredential` (**BREAKING** hook signature).
   - Test: forged/unsigned proof → `invalid_proof`; missing nonce → `invalid_nonce`.
 
-- [ ] **P1.6 Dynamic Client Registration accepts unsafe metadata**
+- [x] **P1.6 Dynamic Client Registration accepts unsafe metadata**
   - Code: [DynamicRegistrationEndpointHandler.cs:194-257](../src/NetOidc.Provider/Dcr/DynamicRegistrationEndpointHandler.cs#L194-L257)
   - Problems: `redirect_uris` not validated (`javascript:`, fragments, `http` to non-loopback
     all accepted); arbitrary `grant_types` accepted (e.g. `client_credentials`, token exchange);
@@ -93,7 +93,7 @@ Goal: close every issue that an external attacker or a malicious registered clie
     other metadata the provider already implements.
   - Test: registration with `javascript:` URI → `invalid_redirect_uri`; disallowed grant → `invalid_client_metadata`.
 
-- [ ] **P1.7 PAR bypasses JAR validation**
+- [x] **P1.7 PAR bypasses JAR validation**
   - Code: [ParEndpointHandler.cs](../src/NetOidc.Provider/Par/ParEndpointHandler.cs),
     [AuthorizationEndpointHandler.cs:362-382](../src/NetOidc.Provider/Authorization/AuthorizationEndpointHandler.cs#L362-L382)
   - Problem: a `request` JWT pushed to PAR is stored verbatim and never verified, so FAPI 2
@@ -103,7 +103,7 @@ Goal: close every issue that an external attacker or a malicious registered clie
     time (RFC 9126 §2.1); strip all client-auth parameters before persisting.
   - Test: PAR with a tampered request object → 400; a stored PAR contains no `client_assertion`.
 
-- [ ] **P1.8 Refresh tokens are not sender-constrained**
+- [x] **P1.8 Refresh tokens are not sender-constrained**
   - Code: [TokenEndpointHandler.cs:232-293](../src/NetOidc.Provider/Token/TokenEndpointHandler.cs#L232-L293),
     [RefreshToken.cs](../src/NetOidc.Provider.Abstractions/Models/RefreshToken.cs)
   - Fix: store `CnfJwkThumbprint`/`CnfX5tS256` on refresh tokens (**BREAKING** model); for
@@ -111,14 +111,14 @@ Goal: close every issue that an external attacker or a malicious registered clie
     IDs and revoke the whole family on reuse (OAuth 2.0 Security BCP §4.14).
   - Test: refresh with a different DPoP key → `invalid_grant`; reuse of a rotated token revokes the family.
 
-- [ ] **P1.9 Introspection exposes any token to any client**
+- [x] **P1.9 Introspection exposes any token to any client**
   - Code: [IntrospectionEndpointHandler.cs:82-112](../src/NetOidc.Provider/Token/IntrospectionEndpointHandler.cs#L82-L112)
   - Fix: introduce protected-resource registrations (or an `CanIntrospect(caller, token)` hook);
     by default a client may introspect only tokens issued to it or whose `aud` includes it.
     Return correct `token_type` (`DPoP` when bound), `cnf`, `aud`, real `iat`.
   - Test: client B introspecting client A's token → `{active:false}`.
 
-- [ ] **P1.10 Client metadata endpoint leaks all clients**
+- [x] **P1.10 Client metadata endpoint leaks all clients**
   - Code: [ClientIdMetadataEndpointHandler.cs](../src/NetOidc.Provider/Discovery/ClientIdMetadataEndpointHandler.cs)
   - Problem: unauthenticated callers can read `redirect_uris` and `jwks` of every client; the
     feature also does not implement the Client ID Metadata Document draft.
@@ -126,11 +126,31 @@ Goal: close every issue that an external attacker or a malicious registered clie
     is an https URL, fetch and cache the metadata document with SSRF protections.
   - Test: `GET /.well-known/client_id_metadata/{id}` → 404.
 
-- [ ] **P1.11 Predictable pairwise subjects**
+- [x] **P1.11 Predictable pairwise subjects**
   - Code: [SubjectIdentifierService.cs:31](../src/NetOidc.Provider/Claims/SubjectIdentifierService.cs#L31)
   - Fix: require `PairwiseSalt` (min 32 bytes) when `SubjectType = "pairwise"` via options
     validation; derive per `sector_identifier_uri` host, not `client_id` (OIDC Core §8.1).
   - Test: startup fails for pairwise without salt.
+
+### Phase 1 — implementation notes (branch `fix/p1-security`)
+
+All eleven items are implemented with regression tests (279 tests pass). The new tests that
+compile against the pre-fix code were run there and fail as expected. Where the
+implementation differs from the text above, or leaves work for a later item:
+
+| Item | Note |
+|------|------|
+| P1.1 | An unregistered or unattributable `post_logout_redirect_uri` returns 400 rather than a logged-out page (no UI exists yet). An unverifiable `id_token_hint` is treated as absent, so logout still succeeds after key changes. |
+| P1.2 | New `ProviderOptions.AuthorizeTokenExchange`. `actor_token` is rejected with `invalid_request` until delegation is implemented. `audience`/`resource` reach the policy but do not yet shape the token `aud` (P3.12). |
+| P1.3 | New `ProviderOptions.AuthorizeJwtBearerSubject` (default deny) and `IReplayCache` (in-memory default; distributed store is P4.3). |
+| P1.4 | Device-code and CIBA approvals now also redeem via `ConsumeAsync`. Code-replay token revocation still needs grant linkage (P3.9). |
+| P1.5 | `IssueCredential` now takes a `CredentialIssuanceRequest` with the proven holder JWKs. Only the `jwk` binding method is supported (`kid`/`x5c` are refused). DPoP-bound access tokens are not yet accepted at the credential endpoint. |
+| P1.6 | New `DcrAllowedGrantTypes` (default `authorization_code`, `refresh_token`) and `DcrAllowPrivateNetworkUris`. Back-channel logout to dynamic clients uses an HTTP client that refuses non-public addresses at connect time. DCR support for `jwks`/`private_key_jwt` metadata remains open. |
+| P1.7 | Full authorization-request validation at PAR covers response_type, redirect_uri and scope; PKCE/response_type semantics are revalidated at the authorization endpoint. |
+| P1.8 | Families are tracked as `Grant` records; rotated tokens are kept as tombstones for reuse detection; revocation removes the family. Binding applies to public clients only (RFC 9449 §5), so end-to-end coverage awaits public-client support (P3.1); the enforcement path is tested directly. |
+| P1.9 | New `ProviderOptions.AuthorizeIntrospection`. Unauthorised callers receive `{"active":false}`. |
+| P1.10 | Endpoint and `ClientIdMetadataDocumentEnabled` option removed; P5.5 reintroduces the feature properly. |
+| P1.11 | New `Client.SectorIdentifierUri`; `ProviderOptionsValidator` runs at startup (`ValidateOnStart`). Pairwise subject values change for existing deployments. |
 
 ---
 

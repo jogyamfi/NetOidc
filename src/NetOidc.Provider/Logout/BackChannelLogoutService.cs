@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
+using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Jose;
 using OidcSession = NetOidc.Provider.Abstractions.Models.Session;
 
@@ -13,18 +15,24 @@ namespace NetOidc.Provider.Logout;
 /// </summary>
 public sealed class BackChannelLogoutService
 {
+    internal const string TrustedHttpClientName = "NetOidc.BackChannelLogout";
+    internal const string UntrustedHttpClientName = "NetOidc.BackChannelLogout.Untrusted";
+
     private readonly IClientStore _clientStore;
     private readonly TokenFactory _tokenFactory;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IOptions<ProviderOptions> _options;
 
     public BackChannelLogoutService(
         IClientStore clientStore,
         TokenFactory tokenFactory,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IOptions<ProviderOptions> options)
     {
         _clientStore = clientStore;
         _tokenFactory = tokenFactory;
         _httpClientFactory = httpClientFactory;
+        _options = options;
     }
 
     /// <summary>
@@ -51,7 +59,11 @@ public sealed class BackChannelLogoutService
             var sid = client.BackChannelLogoutSessionRequired ? sessionId : null;
             var logoutToken = _tokenFactory.CreateLogoutToken(subject, clientId, jti, sid, lifetimeSeconds);
 
-            var http = _httpClientFactory.CreateClient();
+            // Operator-configured clients are trusted to target internal RPs; URLs supplied
+            // through DCR are not.
+            var untrusted = client.IsDynamic && !_options.Value.DcrAllowPrivateNetworkUris;
+            var http = _httpClientFactory.CreateClient(
+                untrusted ? UntrustedHttpClientName : TrustedHttpClientName);
             var content = new FormUrlEncodedContent(
                 [new KeyValuePair<string, string>("logout_token", logoutToken)]);
             using var response = await http.PostAsync(client.BackChannelLogoutUri, content, ct);

@@ -104,6 +104,35 @@ public sealed class RequestObjectValidator
         return ((IReadOnlyDictionary<string, object>)result.Claims, null);
     }
 
+    /// <summary>JWT envelope claims that are not authorization request parameters.</summary>
+    private static readonly HashSet<string> EnvelopeClaims =
+        new(StringComparer.Ordinal) { "iss", "aud", "exp", "iat", "nbf", "jti" };
+
+    /// <summary>
+    /// Converts validated request-object claims into authorization request parameters.
+    /// String claims are used as-is; structured claims (<c>claims</c>,
+    /// <c>authorization_details</c>) are kept as their JSON text.
+    /// </summary>
+    public static Dictionary<string, string> ToAuthorizationParameters(
+        IReadOnlyDictionary<string, object> claims)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, value) in claims)
+        {
+            if (value is null || EnvelopeClaims.Contains(name)) continue;
+            result[name] = value switch
+            {
+                string s => s,
+                System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } e => e.GetString()!,
+                System.Text.Json.JsonElement e => e.GetRawText(),
+                bool b => b ? "true" : "false",
+                IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+                _ => System.Text.Json.JsonSerializer.Serialize(value),
+            };
+        }
+        return result;
+    }
+
     private static int CountDots(string s)
     {
         var count = 0;

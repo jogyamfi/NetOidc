@@ -23,6 +23,7 @@ public sealed class RevocationEndpointHandler
     private readonly TokenFactory _tokenFactory;
     private readonly IOptions<ProviderOptions> _options;
     private readonly IProviderEventSink _events;
+    private readonly RefreshTokenService _refreshTokens;
 
     public RevocationEndpointHandler(
         IClientStore clientStore,
@@ -30,8 +31,10 @@ public sealed class RevocationEndpointHandler
         IAdapter<RefreshToken> refreshTokenStore,
         TokenFactory tokenFactory,
         IOptions<ProviderOptions> options,
-        IProviderEventSink events)
+        IProviderEventSink events,
+        RefreshTokenService refreshTokens)
     {
+        _refreshTokens = refreshTokens;
         _clientStore = clientStore;
         _accessTokenStore = accessTokenStore;
         _refreshTokenStore = refreshTokenStore;
@@ -107,6 +110,7 @@ public sealed class RevocationEndpointHandler
 
         if (stored.ClientId != caller.ClientId) return;
 
-        await _refreshTokenStore.RemoveAsync(token, ct);
+        // RFC 7009 §2.1: revoking a refresh token revokes its whole grant (rotation family).
+        await _refreshTokens.RevokeAsync(stored, ct);
     }
 }

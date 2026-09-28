@@ -16,4 +16,24 @@ public sealed class RefreshToken
 
     /// <summary>JSON-encoded <c>authorization_details</c> array (RFC 9396).</summary>
     public string? AuthorizationDetailsJson { get; init; }
+
+    // ── Rotation & sender constraint ─────────────────────────────────────────
+
+    /// <summary>
+    /// Identifies the rotation family (a <see cref="Grant"/>). Every token produced by
+    /// rotating this one shares the id; detecting reuse revokes the whole family.
+    /// </summary>
+    public string? GrantId { get; init; }
+
+    /// <summary>
+    /// Set when the token has been rotated. The record is kept as a tombstone until it
+    /// expires so that a second presentation can be recognised as reuse.
+    /// </summary>
+    public DateTimeOffset? ConsumedAt { get; init; }
+
+    /// <summary>DPoP key thumbprint the token is bound to (RFC 9449 §5), or <c>null</c>.</summary>
+    public string? CnfJwkThumbprint { get; init; }
+
+    /// <summary>Client certificate thumbprint the token is bound to (RFC 8705 §4), or <c>null</c>.</summary>
+    public string? CnfX5tS256 { get; init; }
 }

@@ -7,6 +7,7 @@ using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
+using NetOidc.Provider.Jose;
 using NetOidc.Provider.Token;
 
 namespace NetOidc.Provider.Par;
@@ -19,18 +20,25 @@ namespace NetOidc.Provider.Par;
 /// </summary>
 public sealed class ParEndpointHandler
 {
+    /// <summary>Client authentication parameters, which must never be persisted.</summary>
+    private static readonly HashSet<string> ClientAuthParameters =
+        new(StringComparer.OrdinalIgnoreCase) { "client_secret", "client_assertion", "client_assertion_type" };
+
     private readonly IOptions<ProviderOptions> _options;
     private readonly IClientStore _clientStore;
     private readonly IAdapter<PushedAuthorizationRequest> _parStore;
+    private readonly RequestObjectValidator _requestObjectValidator;
 
     public ParEndpointHandler(
         IOptions<ProviderOptions> options,
         IClientStore clientStore,
-        IAdapter<PushedAuthorizationRequest> parStore)
+        IAdapter<PushedAuthorizationRequest> parStore,
+        RequestObjectValidator requestObjectValidator)
     {
         _options = options;
         _clientStore = clientStore;
         _parStore = parStore;
+        _requestObjectValidator = requestObjectValidator;
     }
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
@@ -53,18 +61,62 @@ public sealed class ParEndpointHandler
             return ParError(OAuthError.InvalidClient(), 401);
         }
 
-        // Validate required parameters
         var clientId = form["client_id"].ToString();
         if (!string.IsNullOrEmpty(clientId) && clientId != client.ClientId)
             return ParError(OAuthError.InvalidRequest("client_id mismatch"), 400);
 
-        var responseType = form["response_type"].ToString();
+        // RFC 9126 §2.1: request_uri must not be pushed.
+        if (!string.IsNullOrEmpty(form["request_uri"].ToString()))
+            return ParError(OAuthError.InvalidRequest("request_uri is not allowed at the PAR endpoint"), 400);
+
+        // ── Resolve the authorization request parameters ─────────────────────
+        // Client authentication parameters are never part of the stored request.
+        Dictionary<string, string> paramsDict;
+        var requestJwt = form["request"].ToString();
+        if (!string.IsNullOrEmpty(requestJwt))
+        {
+            if (!opts.JarEnabled)
+                return ParError(OAuthError.InvalidRequest("request parameter is not supported (JAR is disabled)"), 400);
+
+            var (claims, jarError) = await _requestObjectValidator.ValidateAsync(
+                requestJwt, client, opts.Issuer.TrimEnd('/'), ct);
+            if (jarError is not null)
+                return ParError(OAuthError.InvalidRequestObject(jarError), 400);
+
+            // RFC 9101 §5 / RFC 9126 §3: only the request object's parameters are used.
+            paramsDict = RequestObjectValidator.ToAuthorizationParameters(claims!);
+            if (paramsDict.TryGetValue("client_id", out var jwtClientId) && jwtClientId != client.ClientId)
+                return ParError(OAuthError.InvalidRequestObject(
+                    "client_id in request object does not match the authenticated client"), 400);
+        }
+        else
+        {
+            if (client.RequireSignedRequestObject)
+                return ParError(OAuthError.InvalidRequest("this client requires a signed request object"), 400);
+
+            paramsDict = form.Keys
+                .Where(k => !ClientAuthParameters.Contains(k))
+                .ToDictionary(k => k, k => form[k].ToString(), StringComparer.OrdinalIgnoreCase);
+        }
+        paramsDict["client_id"] = client.ClientId;   // normalise
+
+        // ── Validate the request now, not only when it is redeemed (RFC 9126 §2.1) ──
+        var responseType = paramsDict.GetValueOrDefault("response_type");
         if (string.IsNullOrEmpty(responseType))
             return ParError(OAuthError.InvalidRequest("response_type is required"), 400);
 
-        var redirectUri = form["redirect_uri"].ToString();
+        var redirectUri = paramsDict.GetValueOrDefault("redirect_uri");
+        if (string.IsNullOrEmpty(redirectUri) && client.RedirectUris.Count != 1)
+            return ParError(OAuthError.InvalidRequest("redirect_uri is required"), 400);
         if (!string.IsNullOrEmpty(redirectUri) && !client.RedirectUris.Contains(redirectUri))
             return ParError(OAuthError.InvalidRequest("redirect_uri not registered for this client"), 400);
+
+        var scopes = (paramsDict.GetValueOrDefault("scope") ?? string.Empty)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var registeredScopes = opts.Scopes.Select(s => s.Name).ToHashSet();
+        var badScopes = scopes.Where(s => !registeredScopes.Contains(s) || !client.AllowedScopes.Contains(s)).ToList();
+        if (badScopes.Count > 0)
+            return ParError(OAuthError.InvalidScope($"Scope(s) not allowed: {string.Join(" ", badScopes)}"), 400);
 
         // ── FAPI 1.0 PAR constraints (Phase 7) ───────────────────────────────
 
@@ -75,16 +127,13 @@ public sealed class ParEndpointHandler
                 return ParError(OAuthError.InvalidClient("FAPI 1.0: public clients cannot use PAR"), 400);
 
             // code_challenge is required at PAR time (FAPI 1.0 §5.2.3.1).
-            var codeChallenge = form["code_challenge"].ToString();
-            if (string.IsNullOrEmpty(codeChallenge))
+            if (string.IsNullOrEmpty(paramsDict.GetValueOrDefault("code_challenge")))
                 return ParError(OAuthError.InvalidRequest("FAPI 1.0: code_challenge is required in PAR"), 400);
         }
 
-        // Store all form parameters as JSON
-        var paramsDict = form.Keys
-            .Where(k => k != "client_secret")   // never persist credentials
-            .ToDictionary(k => k, k => form[k].ToString());
-        paramsDict["client_id"] = client.ClientId;   // normalise
+        // FAPI 2.0 Message Signing: the pushed request must be a signed request object.
+        if (opts.FapiProfile == Configuration.FapiProfile.Fapi2MessageSigning && string.IsNullOrEmpty(requestJwt))
+            return ParError(OAuthError.InvalidRequest("FAPI 2.0 Message Signing: a signed request object is required"), 400);
 
         var token = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
         var requestUri = $"urn:ietf:params:oauth:request_uri:{token}";

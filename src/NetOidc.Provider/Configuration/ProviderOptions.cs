@@ -19,6 +19,13 @@ public sealed class ProviderOptions
     public string RevocationEndpoint { get; set; } = "/connect/revoke";
     public string EndSessionEndpoint { get; set; } = "/connect/end_session";
 
+    /// <summary>
+    /// Decides whether a client may introspect an access token that was neither issued to it
+    /// nor addressed to it (<c>aud</c>). Use this to authorise resource servers. When
+    /// <c>null</c>, such requests report <c>{"active":false}</c>.
+    /// </summary>
+    public Func<IntrospectionContext, CancellationToken, Task<bool>>? AuthorizeIntrospection { get; set; }
+
     // -- DCR (RFC 7591 / RFC 7592) --
 
     /// <summary>When true, <c>POST /connect/register</c> is active.</summary>
@@ -46,6 +53,19 @@ public sealed class ProviderOptions
     /// Optional hook called after client metadata is built. Throw to reject registration.
     /// </summary>
     public Func<Abstractions.Models.Client, CancellationToken, Task>? ValidateDynamicClient { get; set; }
+
+    /// <summary>
+    /// Grant types a dynamically registered client may request. Anything else is rejected
+    /// with <c>invalid_client_metadata</c>. Add e.g. <c>client_credentials</c> deliberately.
+    /// </summary>
+    public IList<string> DcrAllowedGrantTypes { get; set; } = ["authorization_code", "refresh_token"];
+
+    /// <summary>
+    /// When <c>true</c>, dynamically registered clients may point server-called URLs
+    /// (<c>backchannel_logout_uri</c>) at private, loopback or plain-http addresses.
+    /// Leave <c>false</c> in production: those URLs are otherwise an SSRF vector.
+    /// </summary>
+    public bool DcrAllowPrivateNetworkUris { get; set; } = false;
 
     // -- Logout / Session --
 
@@ -177,10 +197,24 @@ public sealed class ProviderOptions
     /// <summary>When true, the <c>urn:ietf:params:oauth:grant-type:token-exchange</c> grant is active.</summary>
     public bool TokenExchangeEnabled { get; set; } = false;
 
+    /// <summary>
+    /// Decides whether a token exchange may proceed. When <c>null</c>, a client may only
+    /// exchange subject tokens that were issued to itself. Scopes are always bounded by the
+    /// subject token and the client's allowed scopes, regardless of this policy.
+    /// </summary>
+    public Func<TokenExchangeContext, CancellationToken, Task<bool>>? AuthorizeTokenExchange { get; set; }
+
     // ── JWT Bearer grant (RFC 7523) ───────────────────────────────────────────
 
     /// <summary>When true, the <c>urn:ietf:params:oauth:grant-type:jwt-bearer</c> grant is active.</summary>
     public bool JwtBearerGrantEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Decides whether a client may obtain a token for the subject named in its JWT
+    /// assertion. When <c>null</c>, every jwt-bearer grant is denied: a client asserting an
+    /// arbitrary <c>sub</c> would otherwise be able to impersonate any user.
+    /// </summary>
+    public Func<JwtBearerContext, CancellationToken, Task<bool>>? AuthorizeJwtBearerSubject { get; set; }
 
     // ── Phase 5 — DPoP (RFC 9449) ────────────────────────────────────────────
 
@@ -311,11 +345,11 @@ public sealed class ProviderOptions
     public IList<Vci.CredentialConfiguration> VciCredentialConfigurations { get; set; } = [];
 
     /// <summary>
-    /// Hook invoked to issue a verifiable credential.
-    /// Arguments: (subject, credentialConfigurationId, cancellationToken).
-    /// Must return the credential as a string (JWT-VC, SD-JWT, etc.).
+    /// Hook invoked to issue a verifiable credential after the access token and key proofs
+    /// have been verified. Must return the credential as a string (JWT-VC, SD-JWT, etc.)
+    /// bound to <see cref="Vci.CredentialIssuanceRequest.HolderPublicJwks"/>.
     /// </summary>
-    public Func<string, string, CancellationToken, Task<string>>? IssueCredential { get; set; }
+    public Func<Vci.CredentialIssuanceRequest, CancellationToken, Task<string>>? IssueCredential { get; set; }
 
     // ── Phase 8 — CORS ─────────────────────────────────────────────────────────
 
@@ -327,12 +361,4 @@ public sealed class ProviderOptions
     /// allows all origins (<c>*</c>).
     /// </summary>
     public IList<string> CorsAllowedOrigins { get; set; } = [];
-
-    // ── Phase 8 — Client ID Metadata Document (draft) ─────────────────────────
-
-    /// <summary>
-    /// When true, a client whose <c>client_id</c> is a URL may omit pre-registration;
-    /// the provider fetches the Client ID Metadata Document from that URL on first use.
-    /// </summary>
-    public bool ClientIdMetadataDocumentEnabled { get; set; } = false;
 }

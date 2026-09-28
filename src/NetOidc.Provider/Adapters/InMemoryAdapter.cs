@@ -34,11 +34,13 @@ public sealed class InMemoryAdapter<T> : IAdapter<T> where T : class
         return Task.CompletedTask;
     }
 
-    public async Task<T?> ConsumeAsync(string id, CancellationToken ct = default)
+    public Task<T?> ConsumeAsync(string id, CancellationToken ct = default)
     {
-        var entity = await FindAsync(id, ct);
-        if (entity is not null)
-            _store.TryRemove(id, out _);
-        return entity;
+        // TryRemove is the single atomic step: exactly one caller can win the entry.
+        if (!_store.TryRemove(id, out var entry))
+            return Task.FromResult<T?>(null);
+
+        return Task.FromResult(
+            entry.ExpiresAt is null || entry.ExpiresAt > DateTimeOffset.UtcNow ? entry.Entity : null);
     }
 }

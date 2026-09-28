@@ -67,7 +67,7 @@ public sealed class DynamicRegistrationEndpointHandler
 
         var (client, registrationToken, validationError) = BuildClient(opts, req, clientId: null);
         if (validationError is not null)
-            return DcrError(OAuthError.InvalidRequest(validationError), 400);
+            return DcrError(validationError, 400);
 
         // Run optional validation hook.
         if (opts.ValidateDynamicClient is not null)
@@ -116,7 +116,7 @@ public sealed class DynamicRegistrationEndpointHandler
         var opts = _options.Value;
         var (updated, newRegistrationToken, validationError) = BuildClient(opts, req, clientId: existing.ClientId);
         if (validationError is not null)
-            return DcrError(OAuthError.InvalidRequest(validationError), 400);
+            return DcrError(validationError, 400);
 
         // Preserve the existing registration token hash unless rotation is enabled.
         string? registrationToken = null;
@@ -191,15 +191,68 @@ public sealed class DynamicRegistrationEndpointHandler
         return CryptographicEquals(incoming, client.RegistrationAccessTokenHash) ? client : null;
     }
 
-    private static (Client? Client, string? RegistrationToken, string? Error) BuildClient(
+    private static (Client? Client, string? RegistrationToken, OAuthError? Error) BuildClient(
         ProviderOptions opts, ClientRegistrationRequest req, string? clientId)
     {
         var authMethod = req.TokenEndpointAuthMethod ?? "client_secret_basic";
         if (authMethod is not ("client_secret_basic" or "client_secret_post" or "none"))
-            return (null, null, $"Unsupported token_endpoint_auth_method: {authMethod}");
+            return (null, null, OAuthError.InvalidClientMetadata(
+                $"Unsupported token_endpoint_auth_method: {authMethod}"));
 
-        var grantTypes = req.GrantTypes?.ToList() ?? ["authorization_code"];
-        var responseTypes = req.ResponseTypes?.ToList() ?? ["code"];
+        var grantTypes = (req.GrantTypes ?? ["authorization_code"]).Distinct().ToList();
+        var disallowedGrants = grantTypes.Where(g => !opts.DcrAllowedGrantTypes.Contains(g)).ToList();
+        if (disallowedGrants.Count > 0)
+            return (null, null, OAuthError.InvalidClientMetadata(
+                $"grant_types not permitted for dynamic registration: {string.Join(" ", disallowedGrants)}"));
+
+        // RFC 7591 §2.1: response_types must be consistent with grant_types.
+        var responseTypes = req.ResponseTypes?.ToList()
+            ?? (grantTypes.Contains("authorization_code") ? ["code"] : []);
+        foreach (var rt in responseTypes)
+        {
+            var parts = rt.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var needsCode = parts.Contains("code");
+            var needsImplicit = parts.Any(p => p is "token" or "id_token");
+            if (parts.Any(p => p is not ("code" or "token" or "id_token")) ||
+                (needsCode && !grantTypes.Contains("authorization_code")) ||
+                (needsImplicit && !grantTypes.Contains("implicit")))
+                return (null, null, OAuthError.InvalidClientMetadata(
+                    $"response_type '{rt}' is inconsistent with grant_types"));
+        }
+
+        // Redirect-based grants require at least one valid redirect URI.
+        var redirectUris = req.RedirectUris ?? [];
+        if (redirectUris.Count == 0 &&
+            (grantTypes.Contains("authorization_code") || grantTypes.Contains("implicit")))
+            return (null, null, OAuthError.InvalidRedirectUri("redirect_uris is required"));
+        foreach (var uri in redirectUris)
+        {
+            if (ClientMetadataValidator.ValidateRedirectUri(uri) is { } err)
+                return (null, null, OAuthError.InvalidRedirectUri(err));
+        }
+
+        foreach (var uri in req.PostLogoutRedirectUris ?? [])
+        {
+            if (ClientMetadataValidator.ValidateRedirectUri(uri) is { } err)
+                return (null, null, OAuthError.InvalidClientMetadata("post_logout_redirect_uris: " + err));
+        }
+
+        if (req.ClientUri is not null &&
+            ClientMetadataValidator.ValidateWebUri("client_uri", req.ClientUri) is { } clientUriErr)
+            return (null, null, OAuthError.InvalidClientMetadata(clientUriErr));
+        if (req.LogoUri is not null &&
+            ClientMetadataValidator.ValidateWebUri("logo_uri", req.LogoUri) is { } logoErr)
+            return (null, null, OAuthError.InvalidClientMetadata(logoErr));
+
+        if (req.BackChannelLogoutUri is not null &&
+            ClientMetadataValidator.ValidateServerCallbackUri(
+                "backchannel_logout_uri", req.BackChannelLogoutUri, opts.DcrAllowPrivateNetworkUris) is { } bclErr)
+            return (null, null, OAuthError.InvalidClientMetadata(bclErr));
+
+        // PKCE is on by default and cannot be disabled by public clients (RFC 9700 §2.1.1).
+        var requirePkce = req.RequirePkce ?? true;
+        if (!requirePkce && authMethod == "none")
+            return (null, null, OAuthError.InvalidClientMetadata("public clients must use PKCE"));
 
         // Build allowed scopes: intersect requested with registered scopes.
         var registeredScopes = opts.Scopes.Select(s => s.Name).ToHashSet();
@@ -235,11 +288,11 @@ public sealed class DynamicRegistrationEndpointHandler
         {
             ClientId = id,
             ClientSecret = secret,
-            RedirectUris = req.RedirectUris ?? [],
+            RedirectUris = redirectUris,
             AllowedGrantTypes = grantTypes,
             AllowedScopes = allowedScopes,
             TokenEndpointAuthMethod = authMethod,
-            RequirePkce = req.RequirePkce ?? false,
+            RequirePkce = requirePkce,
             IsDynamic = true,
             RegistrationAccessTokenHash = HashToken(registrationToken),
             ClientIdIssuedAt = now,

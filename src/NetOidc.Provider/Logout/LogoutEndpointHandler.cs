@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Configuration;
@@ -66,30 +67,42 @@ public sealed class LogoutEndpointHandler
             clientId = q["client_id"];
         }
 
-        // Validate post_logout_redirect_uri if provided.
-        string? resolvedClientId = clientId;
+        string? resolvedClientId = string.IsNullOrEmpty(clientId) ? null : clientId;
         string? sessionId = null;
 
         if (!string.IsNullOrEmpty(idTokenHint))
         {
+            // An unverifiable hint (e.g. signed with a retired key) is treated as absent:
+            // the user is still logged out, but it cannot authorise a redirect.
             var principal = await _tokenFactory.ValidateIdTokenHintAsync(idTokenHint, ct);
             if (principal is not null)
             {
-                resolvedClientId ??= principal.FindFirst("aud")?.Value
-                    ?? principal.FindFirst("azp")?.Value;
+                var hintClientId = principal.FindFirst("azp")?.Value
+                    ?? principal.FindFirst("aud")?.Value;
+
+                // RP-Initiated Logout §2: client_id, when present, must match the hint's audience.
+                if (resolvedClientId is not null && hintClientId is not null &&
+                    !principal.FindAll("aud").Any(a => a.Value == resolvedClientId))
+                    return Results.BadRequest(OAuthError.InvalidRequest(
+                        "client_id does not match the id_token_hint audience"));
+
+                resolvedClientId ??= hintClientId;
                 sessionId = principal.FindFirst("sid")?.Value;
             }
         }
 
-        if (!string.IsNullOrEmpty(postLogoutRedirectUri) && !string.IsNullOrEmpty(resolvedClientId))
+        // post_logout_redirect_uri is honoured only for an identified client and an
+        // exact match against its registered URIs; anything else would be an open redirect.
+        if (!string.IsNullOrEmpty(postLogoutRedirectUri))
         {
+            if (resolvedClientId is null)
+                return Results.BadRequest(OAuthError.InvalidRequest(
+                    "client_id or id_token_hint is required with post_logout_redirect_uri"));
+
             var client = await _clientStore.FindClientAsync(resolvedClientId, ct);
-            if (client is not null && client.PostLogoutRedirectUris.Count > 0
-                && !client.PostLogoutRedirectUris.Contains(postLogoutRedirectUri))
-            {
+            if (client is null || !client.PostLogoutRedirectUris.Contains(postLogoutRedirectUri))
                 return Results.BadRequest(OAuthError.InvalidRequest(
                     "post_logout_redirect_uri not registered for this client"));
-            }
         }
 
         // Remove OIDC session and trigger back-channel logout.
@@ -115,7 +128,7 @@ public sealed class LogoutEndpointHandler
         {
             var target = string.IsNullOrEmpty(state)
                 ? postLogoutRedirectUri
-                : $"{postLogoutRedirectUri}?state={Uri.EscapeDataString(state)}";
+                : QueryHelpers.AddQueryString(postLogoutRedirectUri, "state", state);
             return Results.Redirect(target);
         }
 

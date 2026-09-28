@@ -43,7 +43,11 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IProviderEventSink, NoOpProviderEventSink>();
 
         // Phase 7: FAPI profile validation (runs on first options access / startup).
-        services.TryAddSingleton<IValidateOptions<ProviderOptions>, FapiProfileValidator>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ProviderOptions>, FapiProfileValidator>());
+
+        // Security-relevant option validation (pairwise salt, ...); fails at startup.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ProviderOptions>, ProviderOptionsValidator>());
+        services.AddOptions<ProviderOptions>().ValidateOnStart();
 
         // Storage adapters — in-memory defaults; callers can override with TryAdd.
         services.TryAddSingleton<IAdapter<Grant>, InMemoryAdapter<Grant>>();
@@ -56,6 +60,9 @@ public static class ServiceCollectionExtensions
         // Phase 6 storage adapters
         services.TryAddSingleton<IAdapter<DeviceCode>, InMemoryAdapter<DeviceCode>>();
         services.TryAddSingleton<IAdapter<BackchannelAuthenticationRequest>, InMemoryAdapter<BackchannelAuthenticationRequest>>();
+
+        // Replay detection for one-time JWT identifiers (jti) and nonces.
+        services.TryAddSingleton<IReplayCache, InMemoryReplayCache>();
 
         // Client store: InMemoryDynamicClientStore satisfies both IClientStore and IDynamicClientStore.
         services.TryAddSingleton<InMemoryDynamicClientStore>();
@@ -84,8 +91,20 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<SessionService>();
 
         // Back-channel logout (requires IHttpClientFactory)
-        services.AddHttpClient();
+        // Logout notifications: no redirects, short timeout. Dynamically registered clients
+        // use a connector that refuses private/loopback destinations (SSRF protection).
+        services.AddHttpClient(BackChannelLogoutService.TrustedHttpClientName, c => c.Timeout = TimeSpan.FromSeconds(5))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        services.AddHttpClient(BackChannelLogoutService.UntrustedHttpClientName, c => c.Timeout = TimeSpan.FromSeconds(5))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+                ConnectCallback = NetworkAddressPolicy.ConnectPublicOnlyAsync,
+            });
         services.TryAddSingleton<BackChannelLogoutService>();
+
+        // Refresh-token rotation, reuse detection and binding
+        services.TryAddSingleton<RefreshTokenService>();
 
         // Endpoint handlers
         services.TryAddSingleton<AuthorizationEndpointHandler>();
@@ -109,9 +128,6 @@ public static class ServiceCollectionExtensions
         // Phase 8 — VCI
         services.TryAddSingleton<VciService>();
         services.TryAddSingleton<VciEndpointHandler>();
-
-        // Phase 8 — Client ID Metadata Document
-        services.TryAddSingleton<ClientIdMetadataEndpointHandler>();
 
         // Phase 8 — CORS
         services.AddCors();

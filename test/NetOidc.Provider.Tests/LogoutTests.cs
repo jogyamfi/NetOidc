@@ -60,7 +60,7 @@ public sealed class LogoutTests : IAsyncLifetime
         var target = Uri.EscapeDataString("https://client.test.example.com/logout");
         var state = Uri.EscapeDataString("abc123");
         var resp = await _app.Client.GetAsync(
-            $"/connect/end_session?post_logout_redirect_uri={target}&state={state}");
+            $"/connect/end_session?client_id=test-client&post_logout_redirect_uri={target}&state={state}");
 
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
         var location = resp.Headers.Location?.ToString() ?? "";
@@ -75,12 +75,78 @@ public sealed class LogoutTests : IAsyncLifetime
 
         var form = new Dictionary<string, string>
         {
+            ["client_id"] = "test-client",
             ["post_logout_redirect_uri"] = "https://client.test.example.com/logout",
         };
         var resp = await _app.Client.PostAsync(
             "/connect/end_session", new FormUrlEncodedContent(form));
 
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
+    }
+
+    // ── P1.1: open-redirect prevention ───────────────────────────────────────
+
+    [Fact]
+    public async Task EndSession_WithoutClient_DoesNotRedirectToArbitraryUri()
+    {
+        await SignInAsync("user-or1");
+
+        var target = Uri.EscapeDataString("https://evil.example.net/phish");
+        var resp = await _app.Client.GetAsync(
+            $"/connect/end_session?post_logout_redirect_uri={target}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Null(resp.Headers.Location);
+    }
+
+    [Fact]
+    public async Task EndSession_UnregisteredUri_ForKnownClient_IsRejected()
+    {
+        await SignInAsync("user-or2");
+
+        var target = Uri.EscapeDataString("https://evil.example.net/phish");
+        var resp = await _app.Client.GetAsync(
+            $"/connect/end_session?client_id=test-client&post_logout_redirect_uri={target}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task EndSession_ClientWithNoRegisteredUris_IsRejected()
+    {
+        await SignInAsync("user-or3");
+
+        var target = Uri.EscapeDataString("https://evil.example.net/phish");
+        var resp = await _app.Client.GetAsync(
+            $"/connect/end_session?client_id=implicit-client&post_logout_redirect_uri={target}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task EndSession_StateIsAppendedToExistingQuery()
+    {
+        await using var app = TestWebApp.Create(opts =>
+        {
+            opts.LogoutEnabled = true;
+            opts.StaticClients =
+            [
+                .. opts.StaticClients,
+                new Abstractions.Models.Client
+                {
+                    ClientId = "query-logout-client",
+                    PostLogoutRedirectUris = ["https://client.test.example.com/logout?x=1"],
+                },
+            ];
+        });
+
+        var target = Uri.EscapeDataString("https://client.test.example.com/logout?x=1");
+        var resp = await app.Client.GetAsync(
+            $"/connect/end_session?client_id=query-logout-client&post_logout_redirect_uri={target}&state=s1");
+
+        Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
+        Assert.Equal("https://client.test.example.com/logout?x=1&state=s1",
+            resp.Headers.Location!.ToString());
     }
 
     // ── Discovery document advertises end_session_endpoint ──────────────────

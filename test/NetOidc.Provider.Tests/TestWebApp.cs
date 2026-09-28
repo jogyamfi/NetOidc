@@ -53,6 +53,7 @@ internal sealed class TestWebApp : IAsyncDisposable
                     AllowedGrantTypes = ["authorization_code"],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = ["https://client.test.example.com/callback"],
+                    PostLogoutRedirectUris = ["https://client.test.example.com/logout"],
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
                 },
@@ -102,7 +103,11 @@ internal sealed class TestWebApp : IAsyncDisposable
                 {
                     ClientId = "exchange-client",
                     ClientSecret = "exchange-secret",
-                    AllowedGrantTypes = ["authorization_code", "client_credentials"],
+                    AllowedGrantTypes =
+                    [
+                        "authorization_code", "client_credentials",
+                        "urn:ietf:params:oauth:grant-type:token-exchange",
+                    ],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = ["https://client.test.example.com/callback"],
                     TokenEndpointAuthMethod = "client_secret_basic",
@@ -176,6 +181,29 @@ internal sealed class TestWebApp : IAsyncDisposable
         {
             BaseAddress = testServer.BaseAddress,
         };
+    }
+
+    /// <summary>
+    /// Mints a stored End-User access token directly through the provider's own
+    /// <see cref="Jose.TokenFactory"/>, bypassing the interactive authorization flow.
+    /// </summary>
+    public async Task<string> IssueUserAccessTokenAsync(
+        string subject, string clientId, params string[] scopes)
+    {
+        var factory = Services.GetRequiredService<Jose.TokenFactory>();
+        var store = Services.GetRequiredService<
+            Abstractions.Adapters.IAdapter<AccessToken>>();
+        var tokenId = Guid.NewGuid().ToString("N");
+        await store.StoreAsync(tokenId, new AccessToken
+        {
+            TokenId = tokenId,
+            GrantId = tokenId,
+            ClientId = clientId,
+            Subject = subject,
+            Scopes = scopes,
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+        }, TimeSpan.FromHours(1));
+        return factory.CreateAccessToken(tokenId, subject, clientId, scopes);
     }
 
     public async ValueTask DisposeAsync()
