@@ -58,7 +58,7 @@ public sealed class Phase2MiscTests
         await using var app = TestWebApp.Create(opts =>
         {
             opts.SubjectType = "pairwise";
-            opts.PairwiseSalt = "test-salt";
+            opts.PairwiseSalt = "test-pairwise-salt-of-at-least-32-bytes";
         });
 
         var resp = await app.Client.GetAsync("/.well-known/openid-configuration");

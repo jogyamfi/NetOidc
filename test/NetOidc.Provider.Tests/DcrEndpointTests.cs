@@ -21,6 +21,7 @@ public sealed class DcrEndpointTests : IAsyncLifetime
         {
             opts.DcrEnabled = true;
             opts.InitialAccessToken = null;  // open registration
+            opts.DcrAllowedGrantTypes = ["authorization_code", "refresh_token", "client_credentials"];
         });
         return Task.CompletedTask;
     }

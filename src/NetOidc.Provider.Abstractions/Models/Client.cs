@@ -18,6 +18,12 @@ public sealed class Client
 
     public bool RequirePkce { get; init; } = true;
 
+    /// <summary>
+    /// OIDC Core §8.1 <c>sector_identifier_uri</c>. Its host is the sector used to compute
+    /// pairwise subject identifiers; required when redirect URIs span more than one host.
+    /// </summary>
+    public string? SectorIdentifierUri { get; init; }
+
     // ── DCR fields (RFC 7591 / OIDC Registration) ───────────────────────────
 
     /// <summary>True when this client was dynamically registered via DCR.</summary>

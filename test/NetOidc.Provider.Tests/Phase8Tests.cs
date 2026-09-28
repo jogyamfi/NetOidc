@@ -221,7 +221,7 @@ public sealed class Phase8Tests
         await using var app = TestWebApp.Create(opts =>
         {
             opts.VciEnabled = true;
-            opts.IssueCredential = (_, _, _) => Task.FromResult("test-credential");
+            opts.IssueCredential = (_, _) => Task.FromResult("test-credential");
         });
 
         var resp = await app.Client.PostAsync("/connect/credential",
@@ -236,17 +236,10 @@ public sealed class Phase8Tests
         await using var app = TestWebApp.Create(opts =>
         {
             opts.VciEnabled = true;
-            opts.IssueCredential = (_, _, _) => Task.FromResult("test-credential");
+            opts.IssueCredential = (_, _) => Task.FromResult("test-credential");
         });
 
-        // Obtain an access token via client_credentials first
-        var tokenResp = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/token")
-        {
-            Headers = { Authorization = AuthenticationHeaderValue.Parse(BasicAuth("cc-client", "cc-secret")) },
-            Content = new FormUrlEncodedContent([new("grant_type", "client_credentials"), new("scope", "profile")]),
-        });
-        var tokenBody = JsonDocument.Parse(await tokenResp.Content.ReadAsStringAsync());
-        var accessToken = tokenBody.RootElement.GetProperty("access_token").GetString()!;
+        var accessToken = await app.IssueUserAccessTokenAsync("alice", "test-client", "openid");
 
         var credResp = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/credential")
         {
@@ -265,16 +258,10 @@ public sealed class Phase8Tests
         await using var app = TestWebApp.Create(opts =>
         {
             opts.VciEnabled = true;
-            opts.IssueCredential = (_, _, _) => Task.FromResult("test-credential");
+            opts.IssueCredential = (_, _) => Task.FromResult("test-credential");
         });
 
-        var tokenResp = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/token")
-        {
-            Headers = { Authorization = AuthenticationHeaderValue.Parse(BasicAuth("cc-client", "cc-secret")) },
-            Content = new FormUrlEncodedContent([new("grant_type", "client_credentials"), new("scope", "profile")]),
-        });
-        var accessToken = JsonDocument.Parse(await tokenResp.Content.ReadAsStringAsync())
-            .RootElement.GetProperty("access_token").GetString()!;
+        var accessToken = await app.IssueUserAccessTokenAsync("alice", "test-client", "openid");
 
         var credResp = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/credential")
         {
@@ -287,7 +274,7 @@ public sealed class Phase8Tests
     }
 
     [Fact]
-    public async Task Vci_Credential_IssuesCredential_WhenValid()
+    public async Task Vci_Credential_IssuesUnboundCredential_WhenNoBindingDeclared()
     {
         const string ExpectedCredential = "eyJhbGciOiJSUzI1NiJ9.test.credential";
 
@@ -298,20 +285,13 @@ public sealed class Phase8Tests
             {
                 Id = "TestDegree",
                 Format = "jwt_vc_json",
+                CryptographicBindingMethodsSupported = [],
             });
-            opts.IssueCredential = (sub, configId, _) =>
+            opts.IssueCredential = (_, _) =>
                 Task.FromResult(ExpectedCredential);
         });
 
-        // Get access token via client_credentials
-        var tokenResp = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/token")
-        {
-            Headers = { Authorization = AuthenticationHeaderValue.Parse(BasicAuth("cc-client", "cc-secret")) },
-            Content = new FormUrlEncodedContent([new("grant_type", "client_credentials"), new("scope", "profile")]),
-        });
-        Assert.Equal(HttpStatusCode.OK, tokenResp.StatusCode);
-        var accessToken = JsonDocument.Parse(await tokenResp.Content.ReadAsStringAsync())
-            .RootElement.GetProperty("access_token").GetString()!;
+        var accessToken = await app.IssueUserAccessTokenAsync("alice", "test-client", "openid");
 
         // Request credential
         var credResp = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/credential")
@@ -337,16 +317,10 @@ public sealed class Phase8Tests
                 Id = "TestDegree",
                 Format = "jwt_vc_json",
             });
-            opts.IssueCredential = (_, _, _) => Task.FromResult("test-credential");
+            opts.IssueCredential = (_, _) => Task.FromResult("test-credential");
         });
 
-        var tokenResp = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/token")
-        {
-            Headers = { Authorization = AuthenticationHeaderValue.Parse(BasicAuth("cc-client", "cc-secret")) },
-            Content = new FormUrlEncodedContent([new("grant_type", "client_credentials"), new("scope", "profile")]),
-        });
-        var accessToken = JsonDocument.Parse(await tokenResp.Content.ReadAsStringAsync())
-            .RootElement.GetProperty("access_token").GetString()!;
+        var accessToken = await app.IssueUserAccessTokenAsync("alice", "test-client", "openid");
 
         // Proof with missing jwt field for proof_type=jwt
         var payload = """{"credential_configuration_id":"TestDegree","proof":{"proof_type":"jwt","jwt":""}}""";
@@ -362,44 +336,18 @@ public sealed class Phase8Tests
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // Client ID Metadata Document (draft)
+    // Client metadata disclosure (REMEDIATION_PLAN P1.10)
     // ════════════════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ClientIdMetadata_Returns404_WhenDisabled()
+    public async Task ClientMetadata_IsNotExposedToUnauthenticatedCallers()
     {
-        await using var app = TestWebApp.Create(); // ClientIdMetadataDocumentEnabled = false
+        await using var app = TestWebApp.Create();
 
         var resp = await app.Client.GetAsync("/.well-known/client_id_metadata/test-client");
 
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-    }
-
-    [Fact]
-    public async Task ClientIdMetadata_Returns404_ForUnknownClient()
-    {
-        await using var app = TestWebApp.Create(opts =>
-            opts.ClientIdMetadataDocumentEnabled = true);
-
-        var resp = await app.Client.GetAsync("/.well-known/client_id_metadata/no-such-client");
-
-        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-    }
-
-    [Fact]
-    public async Task ClientIdMetadata_ReturnsPublicFields_ForKnownClient()
-    {
-        await using var app = TestWebApp.Create(opts =>
-            opts.ClientIdMetadataDocumentEnabled = true);
-
-        var resp = await app.Client.GetAsync("/.well-known/client_id_metadata/test-client");
-
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        var body = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-        Assert.Equal("test-client", body.RootElement.GetProperty("client_id").GetString());
-        Assert.True(body.RootElement.TryGetProperty("grant_types", out _));
-        // client_secret must NOT be exposed
-        Assert.False(body.RootElement.TryGetProperty("client_secret", out _));
+        Assert.DoesNotContain("client.test.example.com", await resp.Content.ReadAsStringAsync());
     }
 
     // ════════════════════════════════════════════════════════════════════════════
