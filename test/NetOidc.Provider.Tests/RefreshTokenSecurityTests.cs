@@ -120,7 +120,7 @@ public sealed class RefreshTokenSecurityTests
         var rt = await service.IssueAsync(TestClient("client_secret_basic"), "alice", ["openid"], [], null,
             Thumbprint(key), cnfX5tS256: null, CancellationToken.None);
 
-        Assert.Equal(HttpStatusCode.OK, (await RefreshAsync(app, rt)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await RefreshAsync(app, rt.Value)).StatusCode);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
@@ -129,10 +129,10 @@ public sealed class RefreshTokenSecurityTests
     /// Issues a refresh token as the service would for a public client, owned by test-client
     /// so the test can redeem it with test-client's credentials.
     /// </summary>
-    private static Task<string> IssueBoundTokenAsync(TestWebApp app, ECDsa key) =>
-        app.Services.GetRequiredService<RefreshTokenService>().IssueAsync(
+    private static async Task<string> IssueBoundTokenAsync(TestWebApp app, ECDsa key) =>
+        (await app.Services.GetRequiredService<RefreshTokenService>().IssueAsync(
             TestClient("none"), "alice", ["openid"], [], null,
-            Thumbprint(key), cnfX5tS256: null, CancellationToken.None);
+            Thumbprint(key), cnfX5tS256: null, CancellationToken.None)).Value;
 
     private static Client TestClient(string authMethod) => new()
     {

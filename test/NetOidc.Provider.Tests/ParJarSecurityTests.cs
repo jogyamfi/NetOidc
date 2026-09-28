@@ -70,17 +70,17 @@ public sealed class ParJarSecurityTests : IDisposable
     }
 
     [Fact]
-    public async Task ClientAssertionParameters_AreNotPersisted()
+    public async Task ClientAuthenticationParameters_AreNotPersisted()
     {
         await using var app = CreateApp();
-        var push = await PushAsync(app,
+        var push = await app.Client.PostAsync("/connect/par", new FormUrlEncodedContent(
         [
+            new("client_id", "post-client"),
+            new("client_secret", "post-secret-value"),
             new("response_type", "code"),
             new("redirect_uri", Callback),
             new("scope", "openid"),
-            new("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"),
-            new("client_assertion", "secret-assertion-value"),
-        ], clientId: "par-client", secret: "par-secret");
+        ]));
         Assert.Equal(HttpStatusCode.Created, push.StatusCode);
         var requestUri = JsonDocument.Parse(await push.Content.ReadAsStringAsync())
             .RootElement.GetProperty("request_uri").GetString()!;
@@ -88,8 +88,8 @@ public sealed class ParJarSecurityTests : IDisposable
         var stored = await app.Services.GetRequiredService<IAdapter<PushedAuthorizationRequest>>()
             .FindAsync(requestUri);
 
-        Assert.DoesNotContain("secret-assertion-value", stored!.ParametersJson);
-        Assert.DoesNotContain("client_assertion", stored.ParametersJson);
+        Assert.DoesNotContain("post-secret-value", stored!.ParametersJson);
+        Assert.DoesNotContain("client_secret", stored.ParametersJson);
     }
 
     [Fact]
@@ -178,6 +178,15 @@ public sealed class ParJarSecurityTests : IDisposable
                     RequirePkce = false,
                     RequireSignedRequestObject = true,
                     JwksJson = jwks,
+                },
+                new Client
+                {
+                    ClientId = "post-client",
+                    ClientSecret = "post-secret-value",
+                    TokenEndpointAuthMethod = "client_secret_post",
+                    AllowedGrantTypes = ["authorization_code"],
+                    AllowedScopes = ["openid"],
+                    RedirectUris = [Callback],
                 },
             ];
         });

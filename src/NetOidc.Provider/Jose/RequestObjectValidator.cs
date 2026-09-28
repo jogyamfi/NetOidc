@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using NetOidc.Provider.Abstractions.Models;
@@ -13,9 +14,11 @@ public sealed class RequestObjectValidator
 {
     private readonly JsonWebTokenHandler _handler = new();
     private readonly EncryptionKeyProvider _encryptionKeyProvider;
+    private readonly ILogger<RequestObjectValidator> _logger;
 
-    public RequestObjectValidator(EncryptionKeyProvider encryptionKeyProvider)
+    public RequestObjectValidator(EncryptionKeyProvider encryptionKeyProvider, ILogger<RequestObjectValidator> logger)
     {
+        _logger = logger;
         _encryptionKeyProvider = encryptionKeyProvider;
     }
 
@@ -48,7 +51,10 @@ public sealed class RequestObjectValidator
                 });
 
             if (!decryptResult.IsValid)
-                return (null, "failed to decrypt request object: " + (decryptResult.Exception?.Message ?? "unknown"));
+            {
+                _logger.LogInformation(decryptResult.Exception, "Request object decryption failed for client {ClientId}", client.ClientId);
+                return (null, "failed to decrypt request object");
+            }
 
             // Extract the inner JWS from the decrypted payload
             var innerToken = decryptResult.SecurityToken as JsonWebToken;
@@ -99,7 +105,10 @@ public sealed class RequestObjectValidator
         });
 
         if (!result.IsValid)
-            return (null, result.Exception?.Message ?? "request object signature validation failed");
+        {
+            _logger.LogInformation(result.Exception, "Request object validation failed for client {ClientId}", client.ClientId);
+            return (null, "request object signature, issuer, audience or lifetime is invalid");
+        }
 
         return ((IReadOnlyDictionary<string, object>)result.Claims, null);
     }

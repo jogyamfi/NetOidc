@@ -1,6 +1,9 @@
+using System.Formats.Asn1;
+using System.Net;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using NetOidc.Provider.Abstractions.Adapters;
@@ -14,28 +17,54 @@ namespace NetOidc.Provider.Token;
 /// Supports: client_secret_basic, client_secret_post, private_key_jwt,
 /// client_secret_jwt, tls_client_auth, self_signed_tls_client_auth.
 /// </summary>
-internal static class ClientAuthenticator
+public sealed class ClientAuthenticator
 {
     private const string JwtBearerAssertionType =
         "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
-    private static readonly JsonWebTokenHandler JwtHandler = new();
+    private static readonly TimeSpan ClockSkew = TimeSpan.FromSeconds(30);
 
-    public static async Task<Client?> AuthenticateAsync(
-        HttpContext context,
-        IFormCollection form,
-        IClientStore clientStore,
-        ProviderOptions opts,
-        CancellationToken ct)
+    /// <summary>Asymmetric algorithms accepted for <c>private_key_jwt</c>.</summary>
+    private static readonly string[] AsymmetricAlgorithms =
+        ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"];
+
+    /// <summary>HMAC algorithms for <c>client_secret_jwt</c> and the minimum key size each needs (RFC 7518 §3.2).</summary>
+    private static readonly Dictionary<string, int> HmacMinKeyBytes = new()
     {
-        var client = await AuthenticateCoreAsync(context, form, clientStore, opts, ct);
+        ["HS256"] = 32,
+        ["HS384"] = 48,
+        ["HS512"] = 64,
+    };
+
+    private readonly IClientStore _clientStore;
+    private readonly IOptions<ProviderOptions> _options;
+    private readonly IReplayCache _replayCache;
+    private readonly JsonWebTokenHandler _jwtHandler = new();
+
+    public ClientAuthenticator(
+        IClientStore clientStore, IOptions<ProviderOptions> options, IReplayCache replayCache)
+    {
+        _clientStore = clientStore;
+        _options = options;
+        _replayCache = replayCache;
+    }
+
+    /// <summary>
+    /// Authenticates the calling client, or returns <c>null</c> (→ <c>invalid_client</c>).
+    /// </summary>
+    public async Task<Client?> AuthenticateAsync(
+        HttpContext context, IFormCollection form, CancellationToken ct)
+    {
+        var opts = _options.Value;
+        var client = await AuthenticateCoreAsync(context, form, opts, ct);
         if (client is null) return null;
 
-        // FAPI 2.0: only private_key_jwt and tls_client_auth are allowed (§5.3.1).
+        // FAPI 2.0: only private_key_jwt and mTLS methods are allowed (§5.3.1).
         var isFapi2 = opts.FapiProfile is FapiProfile.Fapi2Security
             or FapiProfile.Fapi2MessageSigning
             or FapiProfile.FapiCiba;
-        if (isFapi2 && client.TokenEndpointAuthMethod is not ("private_key_jwt" or "tls_client_auth"))
+        if (isFapi2 && client.TokenEndpointAuthMethod is not
+                ("private_key_jwt" or "tls_client_auth" or "self_signed_tls_client_auth"))
             return null;
 
         // FAPI 1.0 Advanced: client_secret_basic and client_secret_post are not allowed (§5.2.2).
@@ -46,106 +75,102 @@ internal static class ClientAuthenticator
         return client;
     }
 
-    private static async Task<Client?> AuthenticateCoreAsync(
-        HttpContext context,
-        IFormCollection form,
-        IClientStore clientStore,
-        ProviderOptions opts,
-        CancellationToken ct)
+    private async Task<Client?> AuthenticateCoreAsync(
+        HttpContext context, IFormCollection form, ProviderOptions opts, CancellationToken ct)
     {
-        // ── 1. HTTP Basic → client_secret_basic ────────────────────────────
         var (basicId, basicSecret) = TryParseBasicAuth(context);
-        if (basicId is not null)
-        {
-            var client = await clientStore.FindClientAsync(basicId, ct);
-            if (client?.TokenEndpointAuthMethod == "client_secret_basic" &&
-                client.ClientSecret is not null &&
-                ConstantTimeEquals(basicSecret ?? string.Empty, client.ClientSecret))
-                return client;
-            return null;
-        }
-
-        var assertionType = form["client_assertion_type"].ToString();
+        var hasBasic = basicId is not null;
+        var hasFormSecret = !string.IsNullOrEmpty(form["client_secret"].ToString());
         var assertion = form["client_assertion"].ToString();
+        var hasAssertion = !string.IsNullOrEmpty(assertion) ||
+                           !string.IsNullOrEmpty(form["client_assertion_type"].ToString());
+        var formClientId = form["client_id"].ToString();
 
-        // ── 2. JWT client assertion (private_key_jwt / client_secret_jwt) ──
-        if (assertionType == JwtBearerAssertionType && !string.IsNullOrEmpty(assertion))
+        // RFC 6749 §2.3: a client MUST NOT use more than one authentication method per request.
+        if ((hasBasic ? 1 : 0) + (hasFormSecret ? 1 : 0) + (hasAssertion ? 1 : 0) > 1)
+            return null;
+
+        // ── client_secret_basic ─────────────────────────────────────────────
+        if (hasBasic)
         {
-            // Per RFC 9126 §2.1 the PAR endpoint URL is also a valid aud in PAR assertions.
-            var endpointUrl = opts.Issuer.TrimEnd('/') + context.Request.Path.Value;
-            return await AuthenticateJwtAssertionAsync(assertion, form, clientStore, opts, endpointUrl, ct);
+            if (!string.IsNullOrEmpty(formClientId) && formClientId != basicId)
+                return null;
+            var client = await _clientStore.FindClientAsync(basicId!, ct);
+            return client?.TokenEndpointAuthMethod == "client_secret_basic" &&
+                   client.ClientSecret is not null &&
+                   ConstantTimeEquals(basicSecret ?? string.Empty, client.ClientSecret)
+                ? client : null;
         }
 
-        // ── 3. mTLS (tls_client_auth / self_signed_tls_client_auth) ────────
+        // ── private_key_jwt / client_secret_jwt ─────────────────────────────
+        if (hasAssertion)
+        {
+            if (form["client_assertion_type"].ToString() != JwtBearerAssertionType || string.IsNullOrEmpty(assertion))
+                return null;
+            // RFC 9126 §2: the PAR endpoint URL is also an acceptable audience.
+            var endpointUrl = opts.Issuer.TrimEnd('/') + context.Request.Path.Value;
+            return await AuthenticateJwtAssertionAsync(assertion, formClientId, opts, endpointUrl, ct);
+        }
+
+        if (string.IsNullOrEmpty(formClientId))
+            return null;
+
+        // ── client_secret_post ──────────────────────────────────────────────
+        if (hasFormSecret)
+        {
+            var client = await _clientStore.FindClientAsync(formClientId, ct);
+            return client?.TokenEndpointAuthMethod == "client_secret_post" &&
+                   client.ClientSecret is not null &&
+                   ConstantTimeEquals(form["client_secret"].ToString(), client.ClientSecret)
+                ? client : null;
+        }
+
+        // ── tls_client_auth / self_signed_tls_client_auth ───────────────────
         if (opts.MtlsEnabled)
         {
-            var cert = GetClientCertificate(context, opts);
-            if (cert is not null)
-            {
-                var mtlsClientId = form["client_id"].ToString();
-                if (!string.IsNullOrEmpty(mtlsClientId))
-                {
-                    var client = await clientStore.FindClientAsync(mtlsClientId, ct);
-                    if (client is not null)
-                    {
-                        if (client.TokenEndpointAuthMethod == "tls_client_auth" &&
-                            ValidateTlsClientAuth(cert, client))
-                            return client;
-                        if (client.TokenEndpointAuthMethod == "self_signed_tls_client_auth" &&
-                            ValidateSelfSignedTlsClientAuth(cert, client))
-                            return client;
-                    }
-                }
+            var client = await _clientStore.FindClientAsync(formClientId, ct);
+            if (client?.TokenEndpointAuthMethod is not ("tls_client_auth" or "self_signed_tls_client_auth"))
                 return null;
-            }
-        }
 
-        // ── 4. Form body → client_secret_post ──────────────────────────────
-        var formId = form["client_id"].ToString();
-        if (!string.IsNullOrEmpty(formId))
-        {
-            var client = await clientStore.FindClientAsync(formId, ct);
-            var formSecret = form["client_secret"].ToString();
-            if (client?.TokenEndpointAuthMethod == "client_secret_post" &&
-                client.ClientSecret is not null &&
-                ConstantTimeEquals(formSecret, client.ClientSecret))
-                return client;
-            return null;
+            var cert = GetClientCertificate(context);
+            if (cert is null) return null;
+
+            return client.TokenEndpointAuthMethod == "tls_client_auth"
+                ? ValidateTlsClientAuth(cert, client, opts) ? client : null
+                : ValidateSelfSignedTlsClientAuth(cert, client) ? client : null;
         }
 
         return null;
     }
 
-    // ── JWT assertion validation ───────────────────────────────────────────────
+    // ── JWT assertion validation (RFC 7523 §3) ────────────────────────────────
 
-    private static async Task<Client?> AuthenticateJwtAssertionAsync(
-        string assertion,
-        IFormCollection form,
-        IClientStore clientStore,
-        ProviderOptions opts,
-        string currentEndpointUrl,
-        CancellationToken ct)
+    private async Task<Client?> AuthenticateJwtAssertionAsync(
+        string assertion, string formClientId, ProviderOptions opts,
+        string currentEndpointUrl, CancellationToken ct)
     {
-        // Read without validating to identify the client from iss/sub.
         JsonWebToken unvalidated;
-        try { unvalidated = JwtHandler.ReadJsonWebToken(assertion); }
+        try { unvalidated = _jwtHandler.ReadJsonWebToken(assertion); }
         catch { return null; }
 
-        var clientId = unvalidated.Issuer
-            ?? unvalidated.Subject
-            ?? form["client_id"].ToString();
-        if (string.IsNullOrEmpty(clientId))
+        // iss and sub MUST both be the client_id (RFC 7523 §3, items 1–2).
+        var clientId = unvalidated.Issuer;
+        if (string.IsNullOrEmpty(clientId) || unvalidated.Subject != clientId)
+            return null;
+        if (!string.IsNullOrEmpty(formClientId) && formClientId != clientId)
             return null;
 
-        var client = await clientStore.FindClientAsync(clientId, ct);
+        var client = await _clientStore.FindClientAsync(clientId, ct);
         if (client is null) return null;
 
-        // aud must be the token endpoint URL, issuer, or the specific endpoint being called.
         var issuer = opts.Issuer.TrimEnd('/');
-        var tokenEndpoint = issuer + opts.TokenEndpoint;
-        var validAudiences = new HashSet<string>(StringComparer.Ordinal)
+        var parameters = new TokenValidationParameters
         {
-            tokenEndpoint, issuer, currentEndpointUrl,
+            ValidIssuer = clientId,
+            ValidAudiences = [issuer + opts.TokenEndpoint, issuer, currentEndpointUrl],
+            ValidateLifetime = true,
+            RequireExpirationTime = true,
+            ClockSkew = ClockSkew,
         };
 
         switch (client.TokenEndpointAuthMethod)
@@ -153,116 +178,155 @@ internal static class ClientAuthenticator
             case "private_key_jwt":
             {
                 if (client.JwksJson is null) return null;
-                var jwks = new JsonWebKeySet(client.JwksJson);
-                foreach (var key in jwks.Keys)
-                {
-                    var result = await JwtHandler.ValidateTokenAsync(assertion,
-                        new TokenValidationParameters
-                        {
-                            ValidIssuer = clientId,
-                            ValidAudiences = validAudiences,
-                            IssuerSigningKey = key,
-                            ValidateLifetime = true,
-                            ClockSkew = TimeSpan.FromSeconds(30),
-                        });
-                    if (result.IsValid) return client;
-                }
-                return null;
+                try { parameters.IssuerSigningKeys = new JsonWebKeySet(client.JwksJson).GetSigningKeys(); }
+                catch { return null; }
+                parameters.ValidAlgorithms = AsymmetricAlgorithms;
+                break;
             }
-
             case "client_secret_jwt":
             {
-                if (client.ClientSecret is null) return null;
-                var secretBytes = System.Text.Encoding.UTF8.GetBytes(client.ClientSecret);
-                // Pad or truncate to a valid HMAC key length.
-                var keyMaterial = secretBytes.Length >= 32
-                    ? secretBytes
-                    : SHA256.HashData(secretBytes);
-                var hmacKey = new SymmetricSecurityKey(keyMaterial);
-                var result = await JwtHandler.ValidateTokenAsync(assertion,
-                    new TokenValidationParameters
-                    {
-                        ValidIssuer = clientId,
-                        ValidAudiences = validAudiences,
-                        IssuerSigningKey = hmacKey,
-                        ValidAlgorithms = ["HS256", "HS384", "HS512"],
-                        ValidateLifetime = true,
-                        ClockSkew = TimeSpan.FromSeconds(30),
-                    });
-                return result.IsValid ? client : null;
+                if (client.ClientSecret is null ||
+                    !HmacMinKeyBytes.TryGetValue(unvalidated.Alg ?? string.Empty, out var minBytes))
+                    return null;
+                // RFC 7518 §3.2: the raw secret is the key and must be at least as long as the hash.
+                var keyBytes = System.Text.Encoding.UTF8.GetBytes(client.ClientSecret);
+                if (keyBytes.Length < minBytes) return null;
+                parameters.IssuerSigningKey = new SymmetricSecurityKey(keyBytes);
+                parameters.ValidAlgorithms = [unvalidated.Alg!];
+                break;
             }
-
             default:
                 return null;
         }
+
+        var result = await _jwtHandler.ValidateTokenAsync(assertion, parameters);
+        if (!result.IsValid) return null;
+
+        // Bound the assertion lifetime so a leaked assertion is only briefly useful.
+        var validTo = new DateTimeOffset(result.SecurityToken.ValidTo, TimeSpan.Zero);
+        if (validTo - DateTimeOffset.UtcNow > TimeSpan.FromSeconds(opts.ClientAssertionMaxLifetimeSeconds) + ClockSkew)
+            return null;
+
+        // jti MUST be present and single-use (RFC 7523 §3, item 7).
+        var jti = unvalidated.Id;
+        if (string.IsNullOrEmpty(jti) ||
+            !await _replayCache.TryAddAsync($"client-assertion:{clientId}:{jti}", validTo + ClockSkew, ct))
+            return null;
+
+        return client;
     }
 
-    // ── mTLS helpers ──────────────────────────────────────────────────────────
+    // ── mTLS helpers (RFC 8705) ───────────────────────────────────────────────
 
-    internal static X509Certificate2? GetClientCertificate(
-        HttpContext context, ProviderOptions opts)
+    /// <summary>
+    /// Returns the client certificate from the TLS connection, or from
+    /// <see cref="ProviderOptions.MtlsClientCertificateHeader"/> when the request comes
+    /// directly from one of <see cref="ProviderOptions.MtlsTrustedProxies"/>.
+    /// </summary>
+    public X509Certificate2? GetClientCertificate(HttpContext context)
     {
-        if (opts.MtlsClientCertificateHeader is not null)
+        var opts = _options.Value;
+        if (opts.MtlsClientCertificateHeader is not null && IsTrustedProxy(context.Connection.RemoteIpAddress, opts))
         {
             var header = context.Request.Headers[opts.MtlsClientCertificateHeader].ToString();
             if (!string.IsNullOrEmpty(header))
             {
-                try
-                {
-                    // Header value may be URL-encoded PEM.
-                    var pem = Uri.UnescapeDataString(header);
-                    return X509Certificate2.CreateFromPem(pem);
-                }
+                try { return X509Certificate2.CreateFromPem(Uri.UnescapeDataString(header)); }
                 catch { return null; }
             }
         }
 
-        return context.Connection.ClientCertificate as X509Certificate2;
+        return context.Connection.ClientCertificate;
     }
 
-    private static bool ValidateTlsClientAuth(X509Certificate2 cert, Client client)
+    private static bool IsTrustedProxy(IPAddress? remote, ProviderOptions opts)
     {
-        // At least one of the configured fields must match.
-        if (client.TlsClientAuthSubjectDn is not null &&
-            string.Equals(cert.Subject, client.TlsClientAuthSubjectDn,
-                StringComparison.OrdinalIgnoreCase))
-            return true;
+        if (remote is null) return false;
+        if (remote.IsIPv4MappedToIPv6) remote = remote.MapToIPv4();
 
-        if (client.TlsClientAuthSanDns is not null &&
-            HasSanDns(cert, client.TlsClientAuthSanDns))
-            return true;
-
-        if (client.TlsClientAuthSanUri is not null &&
-            HasSanUri(cert, client.TlsClientAuthSanUri))
-            return true;
-
-        if (client.TlsClientAuthSanIp is not null &&
-            HasSanIp(cert, client.TlsClientAuthSanIp))
-            return true;
-
+        foreach (var entry in opts.MtlsTrustedProxies)
+        {
+            if (entry.Contains('/'))
+            {
+                if (IPNetwork.TryParse(entry, out var network) && network.Contains(remote))
+                    return true;
+            }
+            else if (IPAddress.TryParse(entry, out var ip) && ip.Equals(remote))
+            {
+                return true;
+            }
+        }
         return false;
+    }
+
+    private static bool ValidateTlsClientAuth(X509Certificate2 cert, Client client, ProviderOptions opts)
+    {
+        // PKI method: the certificate must chain to a trusted CA (RFC 8705 §2.1).
+        if (!ChainIsTrusted(cert, opts)) return false;
+
+        return (client.TlsClientAuthSubjectDn is not null && SubjectDnMatches(cert, client.TlsClientAuthSubjectDn))
+            || (client.TlsClientAuthSanDns is not null &&
+                SanValues(cert, 2).Any(v => string.Equals(v, client.TlsClientAuthSanDns, StringComparison.OrdinalIgnoreCase)))
+            || (client.TlsClientAuthSanUri is not null &&
+                SanValues(cert, 6).Any(v => string.Equals(v, client.TlsClientAuthSanUri, StringComparison.Ordinal)))
+            || (client.TlsClientAuthSanIp is not null && HasSanIp(cert, client.TlsClientAuthSanIp));
+    }
+
+    private static bool ChainIsTrusted(X509Certificate2 cert, ProviderOptions opts)
+    {
+        using var chain = new X509Chain();
+        chain.ChainPolicy.RevocationMode = opts.MtlsRevocationMode;
+        chain.ChainPolicy.VerificationTime = DateTime.Now;
+        if (opts.MtlsCertificateAuthorities.Count > 0)
+        {
+            chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+            chain.ChainPolicy.CustomTrustStore.AddRange(opts.MtlsCertificateAuthorities.ToArray());
+        }
+        try { return chain.Build(cert); }
+        catch (CryptographicException) { return false; }
+    }
+
+    /// <summary>
+    /// Compares subject DNs attribute-by-attribute (RFC 4514 semantics): same attribute types
+    /// in the same order, values compared case-insensitively with whitespace normalised.
+    /// </summary>
+    internal static bool SubjectDnMatches(X509Certificate2 cert, string expected)
+    {
+        try
+        {
+            var actual = Normalise(cert.SubjectName);
+            var wanted = Normalise(new X500DistinguishedName(expected));
+            return actual.SequenceEqual(wanted);
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+
+        static List<(string Oid, string Value)> Normalise(X500DistinguishedName dn) =>
+            dn.EnumerateRelativeDistinguishedNames()
+                .Select(rdn => (
+                    rdn.GetSingleElementType().Value ?? string.Empty,
+                    string.Join(' ', (rdn.GetSingleElementValue() ?? string.Empty)
+                        .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant()))
+                .ToList();
     }
 
     private static bool ValidateSelfSignedTlsClientAuth(X509Certificate2 cert, Client client)
     {
+        // No PKI: the certificate is trusted because its key is registered (RFC 8705 §2.2),
+        // but an expired or not-yet-valid certificate is still refused.
+        var now = DateTime.Now;
+        if (now < cert.NotBefore || now > cert.NotAfter) return false;
         if (client.JwksJson is null) return false;
         try
         {
-            var jwks = new JsonWebKeySet(client.JwksJson);
-            var certThumbprint = ComputeCertThumbprint(cert);
-            foreach (var key in jwks.Keys)
-            {
-                // Match by x5t#S256 if present in the JWK.
-                if (key.X5t is not null)
-                {
-                    // x5t is SHA-1; check x5tS256 via the extension, or fall back to public-key match.
-                }
-                // Match by comparing the public key.
-                if (PublicKeyMatchesCert(key, cert)) return true;
-            }
+            return new JsonWebKeySet(client.JwksJson).Keys.Any(key => PublicKeyMatchesCert(key, cert));
         }
-        catch { /* Malformed JWKS */ }
-        return false;
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool PublicKeyMatchesCert(JsonWebKey key, X509Certificate2 cert)
@@ -271,34 +335,24 @@ internal static class ClientAuthenticator
         {
             if (key.Kty == "RSA")
             {
-                using var rsa = RSA.Create();
-                rsa.ImportParameters(new RSAParameters
-                {
-                    Modulus = Base64UrlEncoder.DecodeBytes(key.N),
-                    Exponent = Base64UrlEncoder.DecodeBytes(key.E),
-                });
                 using var certRsa = cert.GetRSAPublicKey();
                 if (certRsa is null) return false;
-                var keyParams = rsa.ExportParameters(false);
-                var certParams = certRsa.ExportParameters(false);
-                return keyParams.Modulus!.SequenceEqual(certParams.Modulus!);
+                var p = certRsa.ExportParameters(false);
+                return Base64UrlEncoder.DecodeBytes(key.N).SequenceEqual(p.Modulus!) &&
+                       Base64UrlEncoder.DecodeBytes(key.E).SequenceEqual(p.Exponent!);
             }
 
             if (key.Kty == "EC")
             {
                 using var certEc = cert.GetECDsaPublicKey();
                 if (certEc is null) return false;
-                var certParams = certEc.ExportParameters(false);
-                var certX = Base64UrlEncoder.Encode(certParams.Q.X!);
-                var certY = Base64UrlEncoder.Encode(certParams.Q.Y!);
-                return string.Equals(key.X, certX) && string.Equals(key.Y, certY);
+                var p = certEc.ExportParameters(false);
+                return key.X == Base64UrlEncoder.Encode(p.Q.X!) && key.Y == Base64UrlEncoder.Encode(p.Q.Y!);
             }
         }
         catch { /* mismatch */ }
         return false;
     }
-
-    // ── Certificate thumbprint ─────────────────────────────────────────────────
 
     /// <summary>
     /// Computes the SHA-256 thumbprint of a certificate DER encoding,
@@ -309,41 +363,41 @@ internal static class ClientAuthenticator
 
     // ── SAN helpers ────────────────────────────────────────────────────────────
 
-    private static bool HasSanDns(X509Certificate2 cert, string expected)
+    /// <summary>
+    /// Returns every IA5String GeneralName with the given context tag from the SAN extension
+    /// (2 = dNSName, 6 = uniformResourceIdentifier).
+    /// </summary>
+    internal static IEnumerable<string> SanValues(X509Certificate2 cert, int tag)
     {
-        foreach (var ext in cert.Extensions)
+        var ext = cert.Extensions["2.5.29.17"];
+        if (ext is null) return [];
+
+        var values = new List<string>();
+        try
         {
-            if (ext is X509SubjectAlternativeNameExtension san)
+            var reader = new AsnReader(ext.RawData, AsnEncodingRules.DER).ReadSequence();
+            var wanted = new Asn1Tag(TagClass.ContextSpecific, tag);
+            while (reader.HasData)
             {
-                foreach (var name in san.EnumerateDnsNames())
-                    if (string.Equals(name, expected, StringComparison.OrdinalIgnoreCase))
-                        return true;
+                if (reader.PeekTag().HasSameClassAndValue(wanted))
+                    values.Add(reader.ReadCharacterString(UniversalTagNumber.IA5String, wanted));
+                else
+                    reader.ReadEncodedValue();
             }
         }
-        return false;
-    }
-
-    private static bool HasSanUri(X509Certificate2 cert, string expected)
-    {
-        // X509SubjectAlternativeNameExtension.EnumerateUris() is .NET 9+.
-        // Fallback: use GetNameInfo for the first URI SAN.
-        var uri = cert.GetNameInfo(X509NameType.UrlName, forIssuer: false);
-        return !string.IsNullOrEmpty(uri) &&
-               string.Equals(uri, expected, StringComparison.OrdinalIgnoreCase);
+        catch (AsnContentException)
+        {
+            return [];
+        }
+        return values;
     }
 
     private static bool HasSanIp(X509Certificate2 cert, string expected)
     {
-        foreach (var ext in cert.Extensions)
-        {
-            if (ext is X509SubjectAlternativeNameExtension san)
-            {
-                foreach (var ip in san.EnumerateIPAddresses())
-                    if (string.Equals(ip.ToString(), expected, StringComparison.OrdinalIgnoreCase))
-                        return true;
-            }
-        }
-        return false;
+        if (!IPAddress.TryParse(expected, out var wanted)) return false;
+        return cert.Extensions.OfType<X509SubjectAlternativeNameExtension>()
+            .SelectMany(san => san.EnumerateIPAddresses())
+            .Any(ip => ip.Equals(wanted));
     }
 
     // ── Shared helpers ─────────────────────────────────────────────────────────
@@ -360,14 +414,15 @@ internal static class ClientAuthenticator
                 Convert.FromBase64String(header["Basic ".Length..].Trim()));
             var colon = decoded.IndexOf(':');
             if (colon < 0) return (null, null);
-            // RFC 6749 §2.3.1: client_id and secret are URL-encoded.
-            return (Uri.UnescapeDataString(decoded[..colon]),
-                    Uri.UnescapeDataString(decoded[(colon + 1)..]));
+            // RFC 6749 §2.3.1: client_id and secret are form-urlencoded.
+            return (FormDecode(decoded[..colon]), FormDecode(decoded[(colon + 1)..]));
         }
         catch
         {
             return (null, null);
         }
+
+        static string FormDecode(string s) => Uri.UnescapeDataString(s.Replace('+', ' '));
     }
 
     private static bool ConstantTimeEquals(string a, string b) =>

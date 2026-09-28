@@ -1,11 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
+using NetOidc.Provider.Http;
 
 namespace NetOidc.Provider.Dcr;
 
@@ -23,11 +25,17 @@ public sealed class DynamicRegistrationEndpointHandler
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly IDynamicClientStore _clientStore;
+    private readonly RequestThrottle _throttle;
+    private readonly ILogger<DynamicRegistrationEndpointHandler> _logger;
 
     public DynamicRegistrationEndpointHandler(
         IOptions<ProviderOptions> options,
-        IDynamicClientStore clientStore)
+        IDynamicClientStore clientStore,
+        RequestThrottle throttle,
+        ILogger<DynamicRegistrationEndpointHandler> logger)
     {
+        _logger = logger;
+        _throttle = throttle;
         _options = options;
         _clientStore = clientStore;
     }
@@ -40,6 +48,10 @@ public sealed class DynamicRegistrationEndpointHandler
 
         if (!opts.DcrEnabled)
             return DcrError(OAuthError.InvalidRequest("Dynamic client registration is disabled"), 400);
+
+        // Registration may be open to anyone; budget it per caller.
+        if (!_throttle.TryAcquireUnauthenticated(context))
+            return RequestThrottle.TooManyRequests(context);
 
         // Validate initial access token when required.
         if (opts.InitialAccessToken is not null)
@@ -72,11 +84,8 @@ public sealed class DynamicRegistrationEndpointHandler
         // Run optional validation hook.
         if (opts.ValidateDynamicClient is not null)
         {
-            try { await opts.ValidateDynamicClient(client!, ct); }
-            catch (Exception ex)
-            {
-                return DcrError(OAuthError.InvalidRequest(ex.Message), 400);
-            }
+            if (await RunValidationHookAsync(opts, client!, ct) is { } hookError)
+                return hookError;
         }
 
         await _clientStore.StoreClientAsync(client!, ct);
@@ -152,8 +161,8 @@ public sealed class DynamicRegistrationEndpointHandler
 
         if (opts.ValidateDynamicClient is not null)
         {
-            try { await opts.ValidateDynamicClient(final, ct); }
-            catch (Exception ex) { return DcrError(OAuthError.InvalidRequest(ex.Message), 400); }
+            if (await RunValidationHookAsync(opts, final, ct) is { } hookError)
+                return hookError;
         }
 
         await _clientStore.StoreClientAsync(final, ct);
@@ -275,7 +284,7 @@ public sealed class DynamicRegistrationEndpointHandler
         long secretExpiresAt = 0;
         if (authMethod != "none")
         {
-            secret = GenerateToken();
+            secret = GenerateToken(byteLength: 64);   // long enough for HS512 (RFC 7518 §3.2)
             secretExpiresAt = opts.ClientSecretLifetimeSeconds > 0
                 ? now + opts.ClientSecretLifetimeSeconds
                 : 0;
@@ -366,12 +375,34 @@ public sealed class DynamicRegistrationEndpointHandler
         CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(a), Encoding.UTF8.GetBytes(b));
 
-    private static string GenerateToken() =>
-        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+    private static string GenerateToken(int byteLength = 32) =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(byteLength))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     private static string GenerateClientId() =>
         "dyn_" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12)).ToLowerInvariant();
+
+    /// <summary>
+    /// Runs <see cref="ProviderOptions.ValidateDynamicClient"/>. Only a
+    /// <see cref="ClientMetadataValidationException"/> message reaches the client.
+    /// </summary>
+    private async Task<IResult?> RunValidationHookAsync(ProviderOptions opts, Client client, CancellationToken ct)
+    {
+        try
+        {
+            await opts.ValidateDynamicClient!(client, ct);
+            return null;
+        }
+        catch (ClientMetadataValidationException ex)
+        {
+            return DcrError(OAuthError.InvalidClientMetadata(ex.Message), 400);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "ValidateDynamicClient rejected client {ClientId}", client.ClientId);
+            return DcrError(OAuthError.InvalidClientMetadata("client metadata was rejected"), 400);
+        }
+    }
 
     private static IResult DcrError(OAuthError error, int status) =>
         Results.Json(error, statusCode: status);

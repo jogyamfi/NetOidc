@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using NetOidc.Provider.Abstractions.Events;
@@ -59,10 +60,11 @@ app.UseAuthentication();
 
 // ── Login page ──────────────────────────────────────────────────────────────
 
-app.MapGet("/account/login", (string? returnUrl) =>
+app.MapGet("/account/login", (HttpContext ctx, IAntiforgery antiforgery, string? returnUrl) =>
 {
     var enc = HtmlEncoder.Default;
     var safeReturn = enc.Encode(returnUrl ?? "/");
+    var csrf = antiforgery.GetAndStoreTokens(ctx);
     return Results.Content($"""
         <!DOCTYPE html>
         <html>
@@ -70,6 +72,7 @@ app.MapGet("/account/login", (string? returnUrl) =>
         <body>
           <h1>Sign in</h1>
           <form method="post" action="/account/login">
+            <input type="hidden" name="{enc.Encode(csrf.FormFieldName)}" value="{enc.Encode(csrf.RequestToken!)}" />
             <input type="hidden" name="returnUrl" value="{safeReturn}" />
             <label>Username: <input type="text" name="username" autocomplete="username" /></label><br />
             <label>Password: <input type="password" name="password" autocomplete="current-password" /></label><br />
@@ -81,8 +84,12 @@ app.MapGet("/account/login", (string? returnUrl) =>
         """, "text/html");
 });
 
-app.MapPost("/account/login", async (HttpContext ctx) =>
+app.MapPost("/account/login", async (HttpContext ctx, IAntiforgery antiforgery) =>
 {
+    // Login CSRF: refuse credentials posted from another site's form.
+    try { await antiforgery.ValidateRequestAsync(ctx); }
+    catch (AntiforgeryValidationException) { return Results.BadRequest("Invalid or missing antiforgery token."); }
+
     var form = await ctx.Request.ReadFormAsync();
     var username = form["username"].ToString();
     var password = form["password"].ToString();

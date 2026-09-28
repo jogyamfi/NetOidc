@@ -1,10 +1,12 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
+using NetOidc.Provider.Http;
 
 namespace NetOidc.Provider.Device;
 
@@ -13,20 +15,28 @@ namespace NetOidc.Provider.Device;
 /// <c>GET  /connect/device</c> — shows user_code entry (headless: returns interaction contract).
 /// <c>POST /connect/device</c> — processes user_code + authenticated user's approval/denial.
 ///
-/// This is a headless contract: on GET it returns a 200 JSON interaction prompt;
-/// on POST it processes the decision. The sample host provides the actual HTML views.
+/// This is a headless contract: on GET it returns a 200 JSON interaction prompt including an
+/// antiforgery token; on POST it processes the decision, which must carry that token. The host
+/// renders the actual HTML views. Fetch the prompt after the user has signed in: the token is
+/// bound to the signed-in identity.
 /// </summary>
 public sealed class DeviceVerificationEndpointHandler
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly IAdapter<DeviceCode> _deviceCodeStore;
+    private readonly IAntiforgery _antiforgery;
+    private readonly RequestThrottle _throttle;
 
     public DeviceVerificationEndpointHandler(
         IOptions<ProviderOptions> options,
-        IAdapter<DeviceCode> deviceCodeStore)
+        IAdapter<DeviceCode> deviceCodeStore,
+        IAntiforgery antiforgery,
+        RequestThrottle throttle)
     {
         _options = options;
         _deviceCodeStore = deviceCodeStore;
+        _antiforgery = antiforgery;
+        _throttle = throttle;
     }
 
     /// <summary>GET — return the verification prompt contract.</summary>
@@ -38,12 +48,22 @@ public sealed class DeviceVerificationEndpointHandler
 
         var prefilledUserCode = context.Request.Query["user_code"].ToString();
 
+        // Issues the antiforgery cookie and returns the matching request token the host
+        // must post back with the decision.
+        var csrf = _antiforgery.GetAndStoreTokens(context);
+
         return Task.FromResult<IResult>(Results.Json(new
         {
             interaction = "device_verification",
             user_code_required = true,
             prefilled_user_code = string.IsNullOrEmpty(prefilledUserCode) ? null : prefilledUserCode,
             login_required = !context.User.Identity?.IsAuthenticated ?? true,
+            csrf = new
+            {
+                field_name = csrf.FormFieldName,
+                header_name = csrf.HeaderName,
+                token = csrf.RequestToken,
+            },
         }));
     }
 
@@ -67,6 +87,17 @@ public sealed class DeviceVerificationEndpointHandler
         if (string.IsNullOrEmpty(subject))
             return Error(OAuthError.InvalidRequest("Cannot determine authenticated user identity"), 400);
 
+        // A cross-site form must not be able to approve a device for the signed-in user.
+        try { await _antiforgery.ValidateRequestAsync(context); }
+        catch (AntiforgeryValidationException)
+        {
+            return Error(OAuthError.InvalidRequest("missing or invalid antiforgery token"), 400);
+        }
+
+        // RFC 8628 §5.1: user codes are short, so limit how many a user may try.
+        if (_throttle.IsUserCodeEntryBlocked(subject))
+            return RequestThrottle.TooManyRequests(context, opts.DeviceUserCodeFailureWindowSeconds);
+
         var form = await context.Request.ReadFormAsync(ct);
         var rawUserCode = form["user_code"].ToString().Replace("-", "").Trim().ToUpperInvariant();
         if (string.IsNullOrEmpty(rawUserCode))
@@ -77,7 +108,10 @@ public sealed class DeviceVerificationEndpointHandler
         var key = DeviceAuthorizationEndpointHandler.UserCodeKey(rawUserCode);
         var deviceCode = await _deviceCodeStore.FindAsync(key, ct);
         if (deviceCode is null || deviceCode.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            _throttle.RecordUserCodeFailure(subject);
             return Error(OAuthError.InvalidGrant("device code not found or expired"), 400);
+        }
 
         if (deviceCode.Status != DeviceCodeStatus.Pending)
             return Error(OAuthError.InvalidGrant("device code has already been used"), 400);

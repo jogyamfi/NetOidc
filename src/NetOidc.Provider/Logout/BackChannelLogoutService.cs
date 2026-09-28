@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Configuration;
@@ -22,13 +23,16 @@ public sealed class BackChannelLogoutService
     private readonly TokenFactory _tokenFactory;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptions<ProviderOptions> _options;
+    private readonly ILogger<BackChannelLogoutService> _logger;
 
     public BackChannelLogoutService(
         IClientStore clientStore,
         TokenFactory tokenFactory,
         IHttpClientFactory httpClientFactory,
-        IOptions<ProviderOptions> options)
+        IOptions<ProviderOptions> options,
+        ILogger<BackChannelLogoutService> logger)
     {
+        _logger = logger;
         _clientStore = clientStore;
         _tokenFactory = tokenFactory;
         _httpClientFactory = httpClientFactory;
@@ -67,11 +71,15 @@ public sealed class BackChannelLogoutService
             var content = new FormUrlEncodedContent(
                 [new KeyValuePair<string, string>("logout_token", logoutToken)]);
             using var response = await http.PostAsync(client.BackChannelLogoutUri, content, ct);
-            // Best-effort: ignore errors per spec (§2.8).
+            // Best-effort per spec (§2.8): a failing RP does not block the OP logout.
+            if (!response.IsSuccessStatusCode)
+                _logger.LogWarning("Back-channel logout to client {ClientId} returned {StatusCode}",
+                    clientId, (int)response.StatusCode);
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            // Swallow — back-channel logout failures must not prevent the OP logout.
+            // Back-channel logout failures must not prevent the OP logout.
+            _logger.LogWarning(ex, "Back-channel logout to client {ClientId} failed", clientId);
         }
     }
 

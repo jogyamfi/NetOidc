@@ -6,6 +6,7 @@ using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
+using NetOidc.Provider.Http;
 using NetOidc.Provider.Token;
 
 namespace NetOidc.Provider.Device;
@@ -21,16 +22,19 @@ public sealed class DeviceAuthorizationEndpointHandler
     private const int UserCodeLength = 8;
 
     private readonly IOptions<ProviderOptions> _options;
-    private readonly IClientStore _clientStore;
+    private readonly ClientAuthenticator _clientAuthenticator;
     private readonly IAdapter<DeviceCode> _deviceCodeStore;
+    private readonly RequestThrottle _throttle;
 
     public DeviceAuthorizationEndpointHandler(
         IOptions<ProviderOptions> options,
-        IClientStore clientStore,
-        IAdapter<DeviceCode> deviceCodeStore)
+        ClientAuthenticator clientAuthenticator,
+        IAdapter<DeviceCode> deviceCodeStore,
+        RequestThrottle throttle)
     {
+        _throttle = throttle;
         _options = options;
-        _clientStore = clientStore;
+        _clientAuthenticator = clientAuthenticator;
         _deviceCodeStore = deviceCodeStore;
     }
 
@@ -41,12 +45,16 @@ public sealed class DeviceAuthorizationEndpointHandler
         if (!opts.DeviceFlowEnabled)
             return Error(OAuthError.InvalidRequest("Device authorization is not enabled"), 400);
 
+        // Budget per caller before any client lookup or code generation.
+        if (!_throttle.TryAcquireUnauthenticated(context))
+            return RequestThrottle.TooManyRequests(context);
+
         if (!context.Request.HasFormContentType)
             return Error(OAuthError.InvalidRequest("Content-Type must be application/x-www-form-urlencoded"), 400);
 
         var form = await context.Request.ReadFormAsync(ct);
 
-        var client = await ClientAuthenticator.AuthenticateAsync(context, form, _clientStore, opts, ct);
+        var client = await _clientAuthenticator.AuthenticateAsync(context, form, ct);
         if (client is null)
         {
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"NetOidc\"";

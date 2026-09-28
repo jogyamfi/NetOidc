@@ -3,10 +3,16 @@ using NetOidc.Provider.Abstractions.Adapters;
 
 namespace NetOidc.Provider.Adapters;
 
-/// <summary>Process-local <see cref="IReplayCache"/>; entries are pruned lazily on insert.</summary>
+/// <summary>Process-local <see cref="IReplayCache"/>; expired entries are swept periodically.</summary>
 public sealed class InMemoryReplayCache : IReplayCache
 {
+    private static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(30);
+
     private readonly ConcurrentDictionary<string, DateTimeOffset> _entries = new();
+    private long _nextSweepTicks = DateTimeOffset.UtcNow.Add(SweepInterval).UtcTicks;
+
+    /// <summary>Number of entries currently held.</summary>
+    internal int Count => _entries.Count;
 
     public Task<bool> TryAddAsync(string key, DateTimeOffset expiresAt, CancellationToken ct = default)
     {
@@ -17,14 +23,24 @@ public sealed class InMemoryReplayCache : IReplayCache
             _entries.TryRemove(new KeyValuePair<string, DateTimeOffset>(key, existing));
 
         var added = _entries.TryAdd(key, expiresAt);
-        Prune(now);
+        SweepIfDue(now);
         return Task.FromResult(added);
     }
 
-    private void Prune(DateTimeOffset now)
+    /// <summary>Removes every expired entry now.</summary>
+    internal void Sweep(DateTimeOffset now)
     {
         foreach (var kv in _entries)
             if (kv.Value <= now)
                 _entries.TryRemove(kv);
+    }
+
+    private void SweepIfDue(DateTimeOffset now)
+    {
+        var due = Interlocked.Read(ref _nextSweepTicks);
+        if (now.UtcTicks < due ||
+            Interlocked.CompareExchange(ref _nextSweepTicks, now.Add(SweepInterval).UtcTicks, due) != due)
+            return;
+        Sweep(now);
     }
 }

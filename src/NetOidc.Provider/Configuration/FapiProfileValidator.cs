@@ -13,7 +13,7 @@ public sealed class FapiProfileValidator : IValidateOptions<ProviderOptions>
         ["private_key_jwt", "client_secret_jwt", "tls_client_auth", "none"];
 
     private static readonly string[] Fapi2AllowedAuthMethods =
-        ["private_key_jwt", "tls_client_auth"];
+        ["private_key_jwt", "tls_client_auth", "self_signed_tls_client_auth"];
 
     public ValidateOptionsResult Validate(string? name, ProviderOptions opts)
     {
@@ -105,7 +105,7 @@ public sealed class FapiProfileValidator : IValidateOptions<ProviderOptions>
                 errors.Add(
                     $"[FAPI 2.0 §5.3.1] client '{client.ClientId}' uses auth method " +
                     $"'{client.TokenEndpointAuthMethod}' which is not allowed " +
-                    "(must be private_key_jwt or tls_client_auth)");
+                    "(must be private_key_jwt, tls_client_auth or self_signed_tls_client_auth)");
         }
     }
 

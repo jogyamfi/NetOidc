@@ -1,22 +1,28 @@
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Adapters;
 using NetOidc.Provider.Jose;
 
 namespace NetOidc.Provider.DPoP;
 
 /// <summary>
 /// Validates DPoP proofs per RFC 9449 and computes JWK thumbprints (RFC 7638).
-/// Thread-safe; maintains an in-process JTI replay cache.
+/// Thread-safe; proof `jti` values are recorded in an <see cref="IReplayCache"/>.
 /// </summary>
 public sealed class DPopProofValidator
 {
-    // JTI → expiry; entries older than 2×clockSkew are pruned lazily.
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _usedJtis = new();
+    private readonly IReplayCache _replayCache;
     private readonly JsonWebTokenHandler _jwtHandler = new();
+
+    /// <summary>Creates a validator that records proof identifiers in <paramref name="replayCache"/>.</summary>
+    public DPopProofValidator(IReplayCache replayCache) => _replayCache = replayCache;
+
+    /// <summary>Creates a validator with a private in-memory replay cache (single instance only).</summary>
+    public DPopProofValidator() : this(new InMemoryReplayCache()) { }
 
     private static readonly HashSet<string> SupportedAlgorithms =
         new(StringComparer.OrdinalIgnoreCase)
@@ -107,9 +113,8 @@ public sealed class DPopProofValidator
         if (string.IsNullOrEmpty(jti))
             return null;
         var jtiExpiry = iat.AddSeconds(clockSkewSeconds * 2);
-        if (!_usedJtis.TryAdd(jti, jtiExpiry))
-            return null;    // replay detected
-        PruneExpiredJtis();
+        if (!await _replayCache.TryAddAsync("dpop:" + jti, jtiExpiry))
+            return null;   // replay detected
 
         // ath: when an access token is supplied, the proof must commit to it.
         if (accessToken is not null)
@@ -133,14 +138,6 @@ public sealed class DPopProofValidator
             htuUri.GetLeftPart(UriPartial.Path).TrimEnd('/'),
             reqUri.GetLeftPart(UriPartial.Path).TrimEnd('/'),
             StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void PruneExpiredJtis()
-    {
-        var now = DateTimeOffset.UtcNow;
-        foreach (var kv in _usedJtis)
-            if (kv.Value < now)
-                _usedJtis.TryRemove(kv.Key, out _);
     }
 
     /// <summary>

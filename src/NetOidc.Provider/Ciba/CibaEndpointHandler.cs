@@ -21,16 +21,16 @@ namespace NetOidc.Provider.Ciba;
 public sealed class CibaEndpointHandler
 {
     private readonly IOptions<ProviderOptions> _options;
-    private readonly IClientStore _clientStore;
+    private readonly ClientAuthenticator _clientAuthenticator;
     private readonly IAdapter<BackchannelAuthenticationRequest> _cibaStore;
 
     public CibaEndpointHandler(
         IOptions<ProviderOptions> options,
-        IClientStore clientStore,
+        ClientAuthenticator clientAuthenticator,
         IAdapter<BackchannelAuthenticationRequest> cibaStore)
     {
         _options = options;
-        _clientStore = clientStore;
+        _clientAuthenticator = clientAuthenticator;
         _cibaStore = cibaStore;
     }
 
@@ -46,7 +46,7 @@ public sealed class CibaEndpointHandler
 
         var form = await context.Request.ReadFormAsync(ct);
 
-        var client = await ClientAuthenticator.AuthenticateAsync(context, form, _clientStore, opts, ct);
+        var client = await _clientAuthenticator.AuthenticateAsync(context, form, ct);
         if (client is null)
         {
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"NetOidc\"";

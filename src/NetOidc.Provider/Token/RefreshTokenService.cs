@@ -26,6 +26,9 @@ public sealed class RefreshTokenService
         _options = options;
     }
 
+    /// <summary>A newly issued refresh token and the grant (rotation family) it belongs to.</summary>
+    public sealed record IssuedRefreshToken(string Value, string GrantId);
+
     /// <summary>Outcome of <see cref="RotateAsync"/>.</summary>
     public sealed record RotationResult(RefreshToken? Token, string? Error)
     {
@@ -36,7 +39,7 @@ public sealed class RefreshTokenService
     /// Issues a new refresh token family. Tokens for public clients are bound to the presented
     /// DPoP key / client certificate; confidential clients are constrained by client authentication.
     /// </summary>
-    public Task<string> IssueAsync(
+    public Task<IssuedRefreshToken> IssueAsync(
         Client client, string subject, IReadOnlyList<string> scopes,
         IReadOnlyList<string> resources, string? authorizationDetailsJson,
         string? cnfJwkThumbprint, string? cnfX5tS256, CancellationToken ct)
@@ -50,12 +53,12 @@ public sealed class RefreshTokenService
     /// Issues the successor of <paramref name="previous"/> (already validated by
     /// <see cref="RotateAsync"/>) in the same family, carrying over its binding.
     /// </summary>
-    public Task<string> IssueSuccessorAsync(Client client, RefreshToken previous, CancellationToken ct) =>
+    public Task<IssuedRefreshToken> IssueSuccessorAsync(Client client, RefreshToken previous, CancellationToken ct) =>
         StoreAsync(client, previous.Subject, previous.Scopes, previous.Resources,
             previous.AuthorizationDetailsJson, previous.GrantId,
             previous.CnfJwkThumbprint, previous.CnfX5tS256, ct);
 
-    private async Task<string> StoreAsync(
+    private async Task<IssuedRefreshToken> StoreAsync(
         Client client, string subject, IReadOnlyList<string> scopes,
         IReadOnlyList<string> resources, string? authorizationDetailsJson,
         string? grantId, string? boundJkt, string? boundX5t, CancellationToken ct)
@@ -93,7 +96,7 @@ public sealed class RefreshTokenService
             CnfX5tS256 = boundX5t,
         }, lifetime, ct);
 
-        return value;
+        return new IssuedRefreshToken(value, grantId);
     }
 
     /// <summary>

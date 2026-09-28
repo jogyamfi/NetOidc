@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -7,7 +8,9 @@ using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
+using NetOidc.Provider.Http;
 using NetOidc.Provider.Jose;
+using NetOidc.Provider.Token;
 
 namespace NetOidc.Provider.Vci;
 
@@ -23,30 +26,37 @@ public sealed class VciEndpointHandler
     private static readonly TimeSpan ProofMaxAge = TimeSpan.FromMinutes(5);
 
     private readonly IOptions<ProviderOptions> _options;
-    private readonly TokenFactory _tokenFactory;
     private readonly VciService _vciService;
-    private readonly IAdapter<AccessToken> _accessTokenStore;
+    private readonly AccessTokenService _accessTokens;
+    private readonly RequestThrottle _throttle;
+    private readonly ILogger<VciEndpointHandler> _logger;
     private readonly JsonWebTokenHandler _jwtHandler = new();
 
     public VciEndpointHandler(
         IOptions<ProviderOptions> options,
-        TokenFactory tokenFactory,
         VciService vciService,
-        IAdapter<AccessToken> accessTokenStore)
+        AccessTokenService accessTokens,
+        RequestThrottle throttle,
+        ILogger<VciEndpointHandler> logger)
     {
+        _throttle = throttle;
+        _logger = logger;
         _options = options;
-        _tokenFactory = tokenFactory;
         _vciService = vciService;
-        _accessTokenStore = accessTokenStore;
+        _accessTokens = accessTokens;
     }
 
     private static IResult Error(OAuthError err, int status) => Results.Json(err, statusCode: status);
 
     /// <summary><c>POST /connect/nonce</c> — issues a fresh c_nonce.</summary>
-    public IResult HandleNonce()
+    public IResult HandleNonce(HttpContext context)
     {
         if (!_options.Value.VciEnabled)
             return Error(OAuthError.InvalidRequest("VCI is not enabled"), 400);
+
+        // Unauthenticated and stateful: every call stores a nonce, so budget it per caller.
+        if (!_throttle.TryAcquireUnauthenticated(context))
+            return RequestThrottle.TooManyRequests(context);
 
         var nonce = _vciService.IssueNonce();
         return Results.Json(new
@@ -73,11 +83,10 @@ public sealed class VciEndpointHandler
             return InvalidToken(context);
 
         var rawToken = authHeader["Bearer ".Length..].Trim();
-        var principal = await _tokenFactory.ValidateAccessTokenAsync(rawToken, ct);
-        var jti = principal?.FindFirst("jti")?.Value;
-        var stored = jti is null ? null : await _accessTokenStore.FindAsync(jti, ct);
-        if (stored is null || stored.ExpiresAt <= DateTimeOffset.UtcNow)
+        var live = await _accessTokens.ValidateAsync(rawToken, ct);
+        if (live is null)
             return InvalidToken(context);   // invalid, expired or revoked
+        var stored = live.Record;
 
         // Credentials describe an End-User; a client-only token cannot obtain one.
         if (string.IsNullOrEmpty(stored.Subject))
@@ -129,9 +138,10 @@ public sealed class VciEndpointHandler
                     new CredentialIssuanceRequest(
                         stored.Subject, configId, stored.ClientId, stored.Scopes, holderKeys), ct);
             }
-            catch
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // Never echo hook exception details to the wallet.
+                _logger.LogError(ex, "IssueCredential failed for configuration {ConfigurationId}", configId);
                 return Error(OAuthError.ServerError("credential issuance failed"), 500);
             }
 

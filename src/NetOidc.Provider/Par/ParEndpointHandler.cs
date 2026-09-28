@@ -25,18 +25,18 @@ public sealed class ParEndpointHandler
         new(StringComparer.OrdinalIgnoreCase) { "client_secret", "client_assertion", "client_assertion_type" };
 
     private readonly IOptions<ProviderOptions> _options;
-    private readonly IClientStore _clientStore;
+    private readonly ClientAuthenticator _clientAuthenticator;
     private readonly IAdapter<PushedAuthorizationRequest> _parStore;
     private readonly RequestObjectValidator _requestObjectValidator;
 
     public ParEndpointHandler(
         IOptions<ProviderOptions> options,
-        IClientStore clientStore,
+        ClientAuthenticator clientAuthenticator,
         IAdapter<PushedAuthorizationRequest> parStore,
         RequestObjectValidator requestObjectValidator)
     {
         _options = options;
-        _clientStore = clientStore;
+        _clientAuthenticator = clientAuthenticator;
         _parStore = parStore;
         _requestObjectValidator = requestObjectValidator;
     }
@@ -53,8 +53,7 @@ public sealed class ParEndpointHandler
 
         var form = await context.Request.ReadFormAsync(ct);
 
-        var client = await ClientAuthenticator.AuthenticateAsync(
-            context, form, _clientStore, opts, ct);
+        var client = await _clientAuthenticator.AuthenticateAsync(context, form, ct);
         if (client is null)
         {
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"NetOidc\"";

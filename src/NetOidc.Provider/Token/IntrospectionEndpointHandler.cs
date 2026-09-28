@@ -18,25 +18,22 @@ namespace NetOidc.Provider.Token;
 /// </summary>
 public sealed class IntrospectionEndpointHandler
 {
-    private readonly IClientStore _clientStore;
-    private readonly IAdapter<AccessToken> _accessTokenStore;
+    private readonly ClientAuthenticator _clientAuthenticator;
+    private readonly AccessTokenService _accessTokens;
     private readonly RefreshTokenService _refreshTokens;
-    private readonly TokenFactory _tokenFactory;
     private readonly IOptions<ProviderOptions> _options;
     private readonly IProviderEventSink _events;
 
     public IntrospectionEndpointHandler(
-        IClientStore clientStore,
-        IAdapter<AccessToken> accessTokenStore,
+        ClientAuthenticator clientAuthenticator,
+        AccessTokenService accessTokens,
         RefreshTokenService refreshTokens,
-        TokenFactory tokenFactory,
         IOptions<ProviderOptions> options,
         IProviderEventSink events)
     {
-        _clientStore = clientStore;
-        _accessTokenStore = accessTokenStore;
+        _clientAuthenticator = clientAuthenticator;
+        _accessTokens = accessTokens;
         _refreshTokens = refreshTokens;
-        _tokenFactory = tokenFactory;
         _options = options;
         _events = events;
     }
@@ -48,8 +45,7 @@ public sealed class IntrospectionEndpointHandler
 
         var form = await context.Request.ReadFormAsync(ct);
 
-        var caller = await ClientAuthenticator.AuthenticateAsync(
-            context, form, _clientStore, _options.Value, ct);
+        var caller = await _clientAuthenticator.AuthenticateAsync(context, form, ct);
         if (caller is null)
         {
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"NetOidc\"";
@@ -82,16 +78,11 @@ public sealed class IntrospectionEndpointHandler
     private async Task<IResult?> IntrospectAccessTokenAsync(
         string token, Client caller, CancellationToken ct)
     {
-        // Validate the JWT structurally and cryptographically
-        var principal = await _tokenFactory.ValidateAccessTokenAsync(token, ct);
-        if (principal is null) return null;
-
-        var jti = principal.FindFirstValue("jti");
-        if (jti is null) return null;
-
-        // Cross-reference the store to detect revoked tokens
-        var stored = await _accessTokenStore.FindAsync(jti, ct);
-        if (stored is null) return null;
+        // Signature, lifetime, revocation and grant liveness.
+        var live = await _accessTokens.ValidateAsync(token, ct);
+        if (live is null) return null;
+        var (principal, stored) = live;
+        var jti = stored.TokenId;
 
         // RFC 7662 §4: don't disclose token metadata to arbitrary clients. By default a caller
         // may introspect tokens issued to it or intended for it (aud); resource servers are
