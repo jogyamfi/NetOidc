@@ -15,6 +15,12 @@ public sealed record OAuthError(
     public static OAuthError UnsupportedResponseType(string? description = null) => new("unsupported_response_type", description);
     public static OAuthError UnsupportedGrantType(string? description = null) => new("unsupported_grant_type", description);
     public static OAuthError InvalidScope(string? description = null) => new("invalid_scope", description);
+
+    /// <summary>RFC 7591 §3.2.2: a redirect URI in a registration request is invalid.</summary>
+    public static OAuthError InvalidRedirectUri(string? description = null) => new("invalid_redirect_uri", description);
+
+    /// <summary>RFC 7591 §3.2.2: a client metadata field is invalid.</summary>
+    public static OAuthError InvalidClientMetadata(string? description = null) => new("invalid_client_metadata", description);
     public static OAuthError ServerError(string? description = null) => new("server_error", description);
 
     // ── Phase 4 ───────────────────────────────────────────────────────────────
@@ -60,6 +66,9 @@ public sealed record OAuthError(
 
     /// <summary>OID4VCI: the presented access token is invalid or expired.</summary>
     public static OAuthError InvalidToken(string? description = null) => new("invalid_token", description);
+
+    /// <summary>RFC 6750 §3.1: the access token lacks the scope the request requires.</summary>
+    public static OAuthError InsufficientScope(string? description = null) => new("insufficient_scope", description);
 
     /// <summary>OID4VCI: the credential proof (proof JWT) is invalid.</summary>
     public static OAuthError InvalidProof(string? description = null) => new("invalid_proof", description);

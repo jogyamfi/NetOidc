@@ -2,6 +2,9 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
 using NetOidc.Provider.Jose;
@@ -14,18 +17,27 @@ namespace NetOidc.Provider.Vci;
 /// </summary>
 public sealed class VciEndpointHandler
 {
+    private const string ProofTyp = "openid4vci-proof+jwt";
+
+    /// <summary>Maximum age / clock skew accepted for a proof's <c>iat</c>.</summary>
+    private static readonly TimeSpan ProofMaxAge = TimeSpan.FromMinutes(5);
+
     private readonly IOptions<ProviderOptions> _options;
     private readonly TokenFactory _tokenFactory;
     private readonly VciService _vciService;
+    private readonly IAdapter<AccessToken> _accessTokenStore;
+    private readonly JsonWebTokenHandler _jwtHandler = new();
 
     public VciEndpointHandler(
         IOptions<ProviderOptions> options,
         TokenFactory tokenFactory,
-        VciService vciService)
+        VciService vciService,
+        IAdapter<AccessToken> accessTokenStore)
     {
         _options = options;
         _tokenFactory = tokenFactory;
         _vciService = vciService;
+        _accessTokenStore = accessTokenStore;
     }
 
     private static IResult Error(OAuthError err, int status) => Results.Json(err, statusCode: status);
@@ -55,24 +67,23 @@ public sealed class VciEndpointHandler
         if (opts.IssueCredential is null)
             return Error(OAuthError.ServerError("Credential issuance is not configured"), 500);
 
-        // Extract and validate Bearer access token (OID4VCI 1.0 §7.1)
+        // ── Access token (OID4VCI 1.0 §8.1) ──────────────────────────────────
         var authHeader = context.Request.Headers.Authorization.ToString();
         if (!authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-        {
-            context.Response.Headers.WWWAuthenticate = "Bearer realm=\"NetOidc\"";
-            return Error(OAuthError.InvalidToken(), 401);
-        }
+            return InvalidToken(context);
 
         var rawToken = authHeader["Bearer ".Length..].Trim();
         var principal = await _tokenFactory.ValidateAccessTokenAsync(rawToken, ct);
-        if (principal is null)
-        {
-            context.Response.Headers.WWWAuthenticate = "Bearer realm=\"NetOidc\", error=\"invalid_token\"";
-            return Error(OAuthError.InvalidToken(), 401);
-        }
+        var jti = principal?.FindFirst("jti")?.Value;
+        var stored = jti is null ? null : await _accessTokenStore.FindAsync(jti, ct);
+        if (stored is null || stored.ExpiresAt <= DateTimeOffset.UtcNow)
+            return InvalidToken(context);   // invalid, expired or revoked
 
-        var subject = principal.FindFirst("sub")?.Value ?? principal.FindFirst("client_id")?.Value;
+        // Credentials describe an End-User; a client-only token cannot obtain one.
+        if (string.IsNullOrEmpty(stored.Subject))
+            return InvalidToken(context, "access token has no End-User subject");
 
+        // ── Request body ─────────────────────────────────────────────────────
         if (!context.Request.HasJsonContentType())
             return Error(OAuthError.InvalidRequest("Content-Type must be application/json"), 400);
 
@@ -82,74 +93,165 @@ public sealed class VciEndpointHandler
 
         using (body)
         {
-            var configId = body.RootElement.TryGetProperty("credential_configuration_id", out var cid)
+            var root = body.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return Error(OAuthError.InvalidRequest("Request body must be a JSON object"), 400);
+
+            var configId = root.TryGetProperty("credential_configuration_id", out var cid) &&
+                           cid.ValueKind == JsonValueKind.String
                 ? cid.GetString() : null;
 
             if (string.IsNullOrEmpty(configId))
                 return Error(OAuthError.InvalidRequest("credential_configuration_id is required"), 400);
 
-            if (!opts.VciCredentialConfigurations.Any(c => c.Id == configId))
+            var config = opts.VciCredentialConfigurations.FirstOrDefault(c => c.Id == configId);
+            if (config is null)
                 return Error(OAuthError.InvalidRequest($"Unknown credential_configuration_id: {configId}"), 400);
 
-            // Validate optional proof JWT
-            if (body.RootElement.TryGetProperty("proof", out var proofEl))
+            // The token must have been granted for this credential type.
+            if (config.Scope is not null && !stored.Scopes.Contains(config.Scope))
             {
-                var proofErr = ValidateProofJwt(proofEl, opts);
-                if (proofErr is not null)
-                    return proofErr;
+                context.Response.Headers.WWWAuthenticate =
+                    $"Bearer realm=\"NetOidc\", error=\"insufficient_scope\", scope=\"{config.Scope}\"";
+                return Error(OAuthError.InsufficientScope(
+                    $"access token does not grant scope '{config.Scope}'"), 403);
             }
+
+            // ── Key proofs (OID4VCI 1.0 §8.2) ────────────────────────────────
+            var (holderKeys, proofError) = await VerifyProofsAsync(root, config, stored, opts);
+            if (proofError is not null)
+                return proofError;
 
             string credential;
             try
             {
-                credential = await opts.IssueCredential(subject ?? string.Empty, configId, ct);
+                credential = await opts.IssueCredential(
+                    new CredentialIssuanceRequest(
+                        stored.Subject, configId, stored.ClientId, stored.Scopes, holderKeys), ct);
             }
-            catch (Exception ex)
+            catch
             {
-                return Error(OAuthError.ServerError(ex.Message), 500);
+                // Never echo hook exception details to the wallet.
+                return Error(OAuthError.ServerError("credential issuance failed"), 500);
             }
 
             return Results.Json(new { credential });
         }
     }
 
-    private IResult? ValidateProofJwt(JsonElement proofEl, ProviderOptions opts)
+    /// <summary>
+    /// Verifies every proof in the request and returns the proven holder keys.
+    /// Accepts the single <c>proof</c> object and the <c>proofs</c> batch form.
+    /// </summary>
+    private async Task<(IReadOnlyList<string> HolderKeys, IResult? Error)> VerifyProofsAsync(
+        JsonElement root, CredentialConfiguration config, AccessToken token, ProviderOptions opts)
     {
-        var proofType = proofEl.TryGetProperty("proof_type", out var pt) ? pt.GetString() : null;
-        if (proofType != "jwt")
-            return null; // Unknown type — tolerate; only jwt proof nonce-binding is enforced
+        var proofJwts = new List<string>();
 
-        var proofJwt = proofEl.TryGetProperty("jwt", out var pj) ? pj.GetString() : null;
-        if (string.IsNullOrEmpty(proofJwt))
-            return Error(OAuthError.InvalidProof("proof.jwt is required when proof_type is jwt"), 400);
-
-        try
+        if (root.TryGetProperty("proof", out var proofEl))
         {
-            var handler = new JsonWebTokenHandler();
-            var token = handler.ReadJsonWebToken(proofJwt);
+            if (proofEl.ValueKind != JsonValueKind.Object)
+                return ([], Error(OAuthError.InvalidProof("proof must be an object"), 400));
+            var proofType = proofEl.TryGetProperty("proof_type", out var pt) ? pt.GetString() : null;
+            if (proofType != "jwt")
+                return ([], Error(OAuthError.InvalidProof($"unsupported proof_type '{proofType}'"), 400));
+            var jwt = proofEl.TryGetProperty("jwt", out var pj) ? pj.GetString() : null;
+            if (string.IsNullOrEmpty(jwt))
+                return ([], Error(OAuthError.InvalidProof("proof.jwt is required when proof_type is jwt"), 400));
+            proofJwts.Add(jwt);
+        }
 
-            if (!string.Equals(token.Typ, "openid4vci-proof+jwt", StringComparison.OrdinalIgnoreCase))
-                return Error(OAuthError.InvalidProof("proof JWT typ must be openid4vci-proof+jwt"), 400);
-
-            var credIssuer = string.IsNullOrEmpty(opts.VciCredentialIssuer)
-                ? opts.Issuer.TrimEnd('/')
-                : opts.VciCredentialIssuer.TrimEnd('/');
-
-            if (!token.Audiences.Contains(credIssuer, StringComparer.OrdinalIgnoreCase))
-                return Error(OAuthError.InvalidProof("proof JWT audience must equal the credential issuer"), 400);
-
-            // Consume the c_nonce when present
-            if (token.TryGetClaim("nonce", out var nonceClaim) && !string.IsNullOrEmpty(nonceClaim.Value))
+        if (root.TryGetProperty("proofs", out var proofsEl))
+        {
+            if (proofJwts.Count > 0)
+                return ([], Error(OAuthError.InvalidRequest("proof and proofs must not both be present"), 400));
+            if (proofsEl.ValueKind != JsonValueKind.Object ||
+                !proofsEl.TryGetProperty("jwt", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                return ([], Error(OAuthError.InvalidProof("proofs must contain a jwt array"), 400));
+            foreach (var item in arr.EnumerateArray())
             {
-                if (!_vciService.ConsumeNonce(nonceClaim.Value))
-                    return Error(OAuthError.InvalidNonce(), 400);
+                var jwt = item.ValueKind == JsonValueKind.String ? item.GetString() : null;
+                if (string.IsNullOrEmpty(jwt))
+                    return ([], Error(OAuthError.InvalidProof("proofs.jwt entries must be non-empty strings"), 400));
+                proofJwts.Add(jwt);
             }
         }
-        catch
+
+        var bindingRequired = config.CryptographicBindingMethodsSupported.Count > 0;
+        if (proofJwts.Count == 0)
+            return bindingRequired
+                ? ([], Error(OAuthError.InvalidProof("a key proof is required for this credential"), 400))
+                : ([], null);
+
+        if (!config.ProofTypesSupported.TryGetValue("jwt", out var allowedAlgs))
+            return ([], Error(OAuthError.InvalidProof("jwt proofs are not supported for this credential"), 400));
+
+        var credIssuer = (string.IsNullOrEmpty(opts.VciCredentialIssuer) ? opts.Issuer : opts.VciCredentialIssuer)
+            .TrimEnd('/');
+
+        var holderKeys = new List<string>(proofJwts.Count);
+        foreach (var proofJwt in proofJwts)
         {
-            return Error(OAuthError.InvalidProof("proof JWT is malformed"), 400);
+            var (key, error) = await VerifyProofJwtAsync(proofJwt, allowedAlgs, credIssuer, token.ClientId);
+            if (error is not null)
+                return ([], error);
+            holderKeys.Add(key!);
         }
 
-        return null;
+        return (holderKeys, null);
+    }
+
+    private async Task<(string? HolderJwk, IResult? Error)> VerifyProofJwtAsync(
+        string proofJwt, IReadOnlyList<string> allowedAlgs, string credIssuer, string clientId)
+    {
+        JsonWebToken token;
+        try { token = _jwtHandler.ReadJsonWebToken(proofJwt); }
+        catch { return (null, Error(OAuthError.InvalidProof("proof JWT is malformed"), 400)); }
+
+        if (!string.Equals(token.Typ, ProofTyp, StringComparison.Ordinal))
+            return (null, Error(OAuthError.InvalidProof($"proof JWT typ must be {ProofTyp}"), 400));
+
+        // Asymmetric algorithms from the configuration only; never none or HMAC.
+        if (string.IsNullOrEmpty(token.Alg) || token.Alg == "none" ||
+            token.Alg.StartsWith("HS", StringComparison.Ordinal) || !allowedAlgs.Contains(token.Alg))
+            return (null, Error(OAuthError.InvalidProof($"proof JWT alg '{token.Alg}' is not supported"), 400));
+
+        // Only the jwk binding method is implemented; kid (DID) and x5c are refused explicitly.
+        var embedded = EmbeddedJwk.FromHeader(token.EncodedHeader);
+        if (embedded is null)
+            return (null, Error(OAuthError.InvalidProof("proof JWT must carry a public jwk header"), 400));
+
+        var result = await _jwtHandler.ValidateTokenAsync(proofJwt, new TokenValidationParameters
+        {
+            IssuerSigningKey = embedded.Value.Key,
+            ValidAlgorithms = [token.Alg],
+            ValidTypes = [ProofTyp],
+            ValidAudience = credIssuer,
+            ValidateIssuer = false,         // iss is optional; checked below when present
+            ValidateLifetime = false,       // proofs carry iat, not exp; checked below
+            RequireExpirationTime = false,
+        });
+        if (!result.IsValid)
+            return (null, Error(OAuthError.InvalidProof("proof JWT signature or audience is invalid"), 400));
+
+        if (!string.IsNullOrEmpty(token.Issuer) && token.Issuer != clientId)
+            return (null, Error(OAuthError.InvalidProof("proof JWT iss must be the client_id"), 400));
+
+        if (!token.TryGetPayloadValue<long>("iat", out var iatUnix) ||
+            (DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(iatUnix)).Duration() > ProofMaxAge)
+            return (null, Error(OAuthError.InvalidProof("proof JWT iat is missing or not recent"), 400));
+
+        // A fresh, single-use c_nonce defeats proof replay.
+        if (!token.TryGetPayloadValue<string>("nonce", out var nonce) || string.IsNullOrEmpty(nonce) ||
+            !_vciService.ConsumeNonce(nonce))
+            return (null, Error(OAuthError.InvalidNonce("proof JWT must contain a valid c_nonce"), 400));
+
+        return (embedded.Value.Json, null);
+    }
+
+    private static IResult InvalidToken(HttpContext context, string? description = null)
+    {
+        context.Response.Headers.WWWAuthenticate = "Bearer realm=\"NetOidc\", error=\"invalid_token\"";
+        return Error(OAuthError.InvalidToken(description), 401);
     }
 }

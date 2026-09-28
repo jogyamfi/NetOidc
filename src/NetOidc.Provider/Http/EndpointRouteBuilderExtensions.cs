@@ -171,11 +171,6 @@ public static class EndpointRouteBuilderExtensions
                 });
             }));
 
-        // ── Phase 8 — Client ID Metadata Document ─────────────────────────────
-        WithCors(endpoints.MapGet("/.well-known/client_id_metadata/{clientId}",
-            (ClientIdMetadataEndpointHandler h, string clientId, CancellationToken ct) =>
-                h.HandleAsync(clientId, ct)));
-
         return endpoints;
     }
 }

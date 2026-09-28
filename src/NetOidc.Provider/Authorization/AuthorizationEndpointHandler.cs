@@ -254,7 +254,7 @@ public sealed class AuthorizationEndpointHandler
         }
 
         // Compute effective subject (public or pairwise per OIDC Core §8)
-        var effectiveSub = _subjectIdentifier.Compute(interaction.Subject, clientId);
+        var effectiveSub = _subjectIdentifier.Compute(interaction.Subject, client);
         var grantedScopes = interaction.GrantedScopes;
         var authTime = DateTimeOffset.UtcNow;
 
@@ -398,11 +398,8 @@ public sealed class AuthorizationEndpointHandler
                 return (baseline, error);
 
             var effective = new Dictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
-            foreach (var kv in claims!)
-            {
-                if (kv.Value is not null)
-                    effective[kv.Key] = kv.Value.ToString() ?? string.Empty;
-            }
+            foreach (var kv in RequestObjectValidator.ToAuthorizationParameters(claims!))
+                effective[kv.Key] = kv.Value;
 
             var jwtClientId = GetParam(effective, "client_id");
             if (!string.IsNullOrEmpty(jwtClientId) && jwtClientId != client.ClientId)

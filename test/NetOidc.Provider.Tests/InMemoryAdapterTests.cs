@@ -7,6 +7,34 @@ namespace NetOidc.Provider.Tests;
 public sealed class InMemoryAdapterTests
 {
     [Fact]
+    public async Task ConsumeAsync_IsAtomic_UnderConcurrency()
+    {
+        for (var round = 0; round < 20; round++)
+        {
+            var adapter = new InMemoryAdapter<Grant>();
+            await adapter.StoreAsync("once", new Grant { GrantId = "once", ClientId = "c", Subject = "u" });
+
+            using var start = new ManualResetEventSlim();
+            var tasks = Enumerable.Range(0, 50)
+                .Select(_ => Task.Run(async () => { start.Wait(); return await adapter.ConsumeAsync("once"); }))
+                .ToArray();
+            start.Set();
+            var results = await Task.WhenAll(tasks);
+
+            Assert.Single(results, r => r is not null);
+        }
+    }
+
+    [Fact]
+    public async Task ConsumeAsync_ReturnsNull_ForExpiredEntry()
+    {
+        var adapter = new InMemoryAdapter<Grant>();
+        await adapter.StoreAsync("old", new Grant { GrantId = "old", ClientId = "c", Subject = "u" },
+            TimeSpan.FromMilliseconds(-1));
+        Assert.Null(await adapter.ConsumeAsync("old"));
+    }
+
+    [Fact]
     public async Task FindAsync_ReturnsNull_WhenNotStored()
     {
         var adapter = new InMemoryAdapter<Grant>();

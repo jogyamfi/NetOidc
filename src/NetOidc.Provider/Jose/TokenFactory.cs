@@ -206,6 +206,26 @@ public sealed class TokenFactory
     }
 
     /// <summary>
+    /// Validates an ID token issued by this provider, including its lifetime. Unlike
+    /// <see cref="ValidateIdTokenHintAsync"/>, expired tokens are rejected, so this is the
+    /// method to use whenever the ID token grants something (e.g. token exchange).
+    /// </summary>
+    public async Task<ClaimsPrincipal?> ValidateIdTokenAsync(
+        string token, CancellationToken ct = default)
+    {
+        var opts = _options.Value;
+        var result = await _handler.ValidateTokenAsync(token, new TokenValidationParameters
+        {
+            ValidIssuer = opts.Issuer,
+            IssuerSigningKey = _keyProvider.GetValidationKey(),
+            ValidateAudience = false,   // the caller compares aud/azp with its policy
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(5),
+        });
+        return result.IsValid ? new ClaimsPrincipal(result.ClaimsIdentity) : null;
+    }
+
+    /// <summary>
     /// Validates a JWT access token. Returns the <see cref="ClaimsPrincipal"/> on success,
     /// or <c>null</c> if validation fails.
     /// </summary>

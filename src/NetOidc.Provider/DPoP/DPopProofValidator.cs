@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using NetOidc.Provider.Jose;
 
 namespace NetOidc.Provider.DPoP;
 
@@ -62,9 +63,10 @@ public sealed class DPopProofValidator
             return null;
 
         // Extract the embedded public JWK from the JOSE header.
-        var jwk = ExtractJwkFromHeader(jwt.EncodedHeader);
-        if (jwk is null || !string.IsNullOrEmpty(jwk.D))   // D present → private key leaked
+        var embedded = EmbeddedJwk.FromHeader(jwt.EncodedHeader);   // rejects private keys
+        if (embedded is null)
             return null;
+        var jwk = embedded.Value.Key;
 
         // Cryptographically verify the proof using the embedded public key.
         var result = await _jwtHandler.ValidateTokenAsync(dpopHeader,
@@ -121,19 +123,6 @@ public sealed class DPopProofValidator
     }
 
     // ── static helpers ─────────────────────────────────────────────────────────
-
-    private static JsonWebKey? ExtractJwkFromHeader(string encodedHeader)
-    {
-        try
-        {
-            var bytes = Base64UrlEncoder.DecodeBytes(encodedHeader);
-            using var doc = JsonDocument.Parse(bytes);
-            if (!doc.RootElement.TryGetProperty("jwk", out var jwkEl))
-                return null;
-            return new JsonWebKey(jwkEl.GetRawText());
-        }
-        catch { return null; }
-    }
 
     private static bool UriMatches(string? htu, string requestUri)
     {

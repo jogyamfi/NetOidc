@@ -382,6 +382,9 @@ public sealed class Phase4Tests
         await using var app = TestWebApp.Create(opts =>
         {
             opts.TokenExchangeEnabled = true;
+            // exchange-client acts as a resource server exchanging cc-client's token.
+            opts.AuthorizeTokenExchange = (ctx, _) =>
+                Task.FromResult(ctx.ClientId == "exchange-client" && ctx.SubjectTokenClientId == "cc-client");
         });
 
         // First, get an access token via client_credentials
@@ -470,13 +473,19 @@ public sealed class Phase4Tests
         await using var app = TestWebApp.Create(opts =>
         {
             opts.JwtBearerGrantEnabled = true;
+            opts.AuthorizeJwtBearerSubject = (ctx, _) =>
+                Task.FromResult(ctx.ClientId == "jwt-bearer-client" && ctx.Subject == "external-user");
             opts.StaticClients = opts.StaticClients.Concat(
             [
                 new Client
                 {
                     ClientId = "jwt-bearer-client",
                     ClientSecret = "jwt-bearer-secret",
-                    AllowedGrantTypes = ["authorization_code", "client_credentials"],
+                    AllowedGrantTypes =
+                    [
+                        "authorization_code", "client_credentials",
+                        "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    ],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = ["https://client.test.example.com/callback"],
                     TokenEndpointAuthMethod = "client_secret_basic",
@@ -495,6 +504,7 @@ public sealed class Phase4Tests
             Subject = new System.Security.Claims.ClaimsIdentity(
             [
                 new System.Security.Claims.Claim("sub", "external-user"),
+                new System.Security.Claims.Claim("jti", Guid.NewGuid().ToString("N")),
             ]),
             Expires = DateTime.UtcNow.AddMinutes(5),
             SigningCredentials = new SigningCredentials(privateKey, SecurityAlgorithms.RsaSha256),
