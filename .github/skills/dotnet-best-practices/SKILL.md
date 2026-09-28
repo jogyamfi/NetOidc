@@ -1,13 +1,13 @@
 ---
 name: dotnet-best-practices
-description: ".NET 8 best practices for this codebase. Use when writing, reviewing, or refactoring C# code in NetOidc.Provider or NetOidc.Provider.Abstractions — including API design, nullability, async patterns, DI, security, testing, and performance."
+description: ".NET 10 best practices for this codebase. Use when writing, reviewing, or refactoring C# code in NetOidc.Provider or NetOidc.Provider.Abstractions — including API design, nullability, async patterns, DI, security, testing, and performance."
 ---
 
 # .NET Best Practices — NetOidc
 
 ## Project Context
 
-- **Target framework:** `net8.0` (ASP.NET Core, `Microsoft.AspNetCore.App`)
+- **Target framework:** `net10.0` (ASP.NET Core, `Microsoft.AspNetCore.App`)
 - **Nullable reference types:** enabled (`<Nullable>enable</Nullable>`)
 - **Implicit usings:** enabled
 - **Libraries:** `Microsoft.IdentityModel.JsonWebTokens`, `Microsoft.IdentityModel.Tokens`, `System.Security.Cryptography`
@@ -111,7 +111,7 @@ description: ".NET 8 best practices for this codebase. Use when writing, reviewi
 
 ## References
 
-- [.NET 8 Breaking Changes](https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-8/breaking-changes)
+- [.NET 10 Breaking Changes](https://learn.microsoft.com/en-us/dotnet/core/compatibility/10.0)
 - [ASP.NET Core Security Docs](https://learn.microsoft.com/en-us/aspnet/core/security/)
 - [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/)
 - [RFC 6749 — OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc6749)

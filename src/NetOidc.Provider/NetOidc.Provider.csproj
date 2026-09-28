@@ -14,12 +14,12 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>NetOidc.Provider</PackageId>
     <Title>NetOidc Provider</Title>
-    <Description>A configurable OAuth 2.0 / OpenID Connect Provider library for ASP.NET Core 8. Mounts into any ASP.NET Core app via MapNetOidc(). Supports PKCE, PAR, JAR, JARM, DPoP, mTLS, DCR, CIBA, Device Flow, FAPI 1/2, Federation, and OID4VCI.</Description>
+    <Description>A configurable OAuth 2.0 / OpenID Connect Provider library for ASP.NET Core 10. Mounts into any ASP.NET Core app via MapNetOidc(). Supports PKCE, PAR, JAR, JARM, DPoP, mTLS, DCR, CIBA, Device Flow, FAPI 1/2, Federation, and OID4VCI.</Description>
   </PropertyGroup>
 
 </Project>

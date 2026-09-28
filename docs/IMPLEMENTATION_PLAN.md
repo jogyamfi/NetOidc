@@ -1,6 +1,6 @@
 # NetOidc — Implementation Plan
 
-A configurable OAuth 2.0 / OpenID Connect Provider for **.NET 8 (LTS)**, modeled after
+A configurable OAuth 2.0 / OpenID Connect Provider for **.NET 10 (LTS)**, modeled after
 [`go-oidc`](https://github.com/luikyv/go-oidc) and
 [`node-oidc-provider`](https://github.com/panva/node-oidc-provider).
 
@@ -21,7 +21,7 @@ the end goal, delivered across phases. Storage is a **pluggable adapter interfac
 - **Scope:** full parity as the end goal, phased.
 - **Persistence:** per-model `IAdapter<T>` store interface + in-memory default (mirrors
   node-oidc-provider adapters and go-oidc `goidc.*Manager` interfaces).
-- **Target framework:** `net8.0`.
+- **Target framework:** `net10.0`.
 
 ## Reference architecture (source repos)
 
@@ -70,7 +70,7 @@ net-oidc/
 
 ### Phase 0 — Foundations & scaffolding
 
-- Create `NetOidc.sln`, `src/NetOidc.Provider` (net8.0 classlib), `samples/NetOidc.Sample.Host`,
+- Create `NetOidc.sln`, `src/NetOidc.Provider` (net10.0 classlib), `samples/NetOidc.Sample.Host`,
   `test/NetOidc.Provider.Tests` (xUnit).
 - Add deps: `Microsoft.IdentityModel.Tokens`, `Microsoft.IdentityModel.JsonWebTokens`,
   `System.Text.Json`. Set up `Directory.Build.props`, `nullable enable`, analyzers, CI stub.

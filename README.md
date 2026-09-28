@@ -3,7 +3,7 @@
 > **⚠️ Pre-release — not production ready.**
 > APIs may change before v1.0. Security has not been independently audited.
 
-A configurable OAuth 2.0 / OpenID Connect provider for **.NET 8**, modeled after
+A configurable OAuth 2.0 / OpenID Connect provider for **.NET 10**, modeled after
 [go-oidc](https://github.com/luikyv/go-oidc) and
 [node-oidc-provider](https://github.com/panva/node-oidc-provider).
 

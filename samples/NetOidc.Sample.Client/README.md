@@ -14,7 +14,7 @@ NetOidc provider (`NetOidc.Sample.Host`) via `AddOpenIdConnect`.
 
 ## Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - The `NetOidc.Sample.Host` provider running on `http://localhost:5001`
 
 ## Running
