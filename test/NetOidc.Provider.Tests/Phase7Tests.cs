@@ -352,19 +352,23 @@ public sealed class Phase7Tests
     [Fact]
     public async Task Fapi1_Authorization_Allows_CodeIdToken_HybridFlow()
     {
-        await using var app = TestWebApp.Create(opts =>
-        {
-            opts.FapiProfile = FapiProfile.Fapi1Advanced;
-            opts.JarmEnabled = true;
-        });
+        using var rsa = RSA.Create(2048);
+        await using var app = CreateFapiParApp(rsa, FapiProfile.Fapi1Advanced,
+            responseTypes: ["code id_token"], grantTypes: ["authorization_code", "implicit"]);
         await SignInAsync(app.Client, "alice");
 
-        // code+id_token hybrid is explicitly allowed by FAPI 1.0.
+        // code+id_token hybrid is explicitly allowed by FAPI 1.0 (here via a pushed request).
+        var requestUri = await PushAsync(app, rsa,
+        [
+            new("response_type", "code id_token"),
+            new("redirect_uri", "https://client.test.example.com/callback"),
+            new("scope", "openid"),
+            new("nonce", "n1"),
+            new("code_challenge", PkceChallenge),
+            new("code_challenge_method", "S256"),
+        ]);
         var resp = await app.Client.GetAsync(
-            "/connect/authorize?client_id=hybrid-client" +
-            "&response_type=code%20id_token" +
-            "&redirect_uri=https%3A%2F%2Fclient.test.example.com%2Fcallback" +
-            "&scope=openid&nonce=n1");
+            $"/connect/authorize?client_id=fapi-par-client&request_uri={Uri.EscapeDataString(requestUri)}");
 
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
         var location = resp.Headers.Location!.ToString();
@@ -457,23 +461,23 @@ public sealed class Phase7Tests
     [Fact]
     public async Task Fapi2_Authorization_Allows_Code_WithS256Pkce()
     {
-        await using var app = TestWebApp.Create(opts =>
-        {
-            opts.FapiProfile = FapiProfile.Fapi2Security;
-        });
+        using var rsa = RSA.Create(2048);
+        await using var app = CreateFapiParApp(rsa, FapiProfile.Fapi2Security,
+            responseTypes: ["code"], grantTypes: ["authorization_code"]);
         await SignInAsync(app.Client, "fapi2-user");
 
-        var verifier = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))
-            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        var challengeBytes = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.ASCII.GetBytes(verifier));
-        var challenge = Convert.ToBase64String(challengeBytes)
-            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
+        // FAPI 2.0 requires pushed authorization requests.
+        var requestUri = await PushAsync(app, rsa,
+        [
+            new("response_type", "code"),
+            new("redirect_uri", "https://client.test.example.com/callback"),
+            new("scope", "openid"),
+            new("nonce", "n1"),
+            new("code_challenge", PkceChallenge),
+            new("code_challenge_method", "S256"),
+        ]);
         var resp = await app.Client.GetAsync(
-            "/connect/authorize?client_id=test-client&response_type=code" +
-            "&redirect_uri=https%3A%2F%2Fclient.test.example.com%2Fcallback" +
-            $"&scope=openid&nonce=n1&code_challenge={challenge}&code_challenge_method=S256");
+            $"/connect/authorize?client_id=fapi-par-client&request_uri={Uri.EscapeDataString(requestUri)}");
 
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
         var location = resp.Headers.Location!.ToString();
@@ -508,6 +512,7 @@ public sealed class Phase7Tests
                     AllowedGrantTypes = ["authorization_code"],
                     AllowedScopes = ["openid"],
                     RedirectUris = ["https://client.test.example.com/callback"],
+                    RequireConsent = false,
                     TokenEndpointAuthMethod = "private_key_jwt",
                     JwksJson = jwksJson,
                 },
@@ -563,6 +568,7 @@ public sealed class Phase7Tests
                     AllowedGrantTypes = ["authorization_code"],
                     AllowedScopes = ["openid"],
                     RedirectUris = ["https://client.test.example.com/callback"],
+                    RequireConsent = false,
                     TokenEndpointAuthMethod = "private_key_jwt",
                     JwksJson = jwksJson,
                 },
@@ -668,6 +674,55 @@ public sealed class Phase7Tests
         };
 
     /// <summary>Builds a signed JWT client assertion for private_key_jwt auth.</summary>
+    /// <summary>S256 challenge for a fixed 43-character verifier.</summary>
+    private static readonly string PkceChallenge = Base64UrlEncoder.Encode(
+        System.Security.Cryptography.SHA256.HashData(Encoding.ASCII.GetBytes(new string('v', 43))));
+
+    /// <summary>An app with PAR and a private_key_jwt client, as FAPI profiles require.</summary>
+    private static TestWebApp CreateFapiParApp(
+        RSA rsa, FapiProfile profile, string[] responseTypes, string[] grantTypes)
+    {
+        var jwk = JsonWebKeyConverter.ConvertFromRSASecurityKey(new RsaSecurityKey(rsa.ExportParameters(false)));
+        var jwksJson = JsonSerializer.Serialize(
+            new { keys = new[] { new { kty = "RSA", n = jwk.N, e = jwk.E, use = "sig" } } });
+
+        return TestWebApp.Create(opts =>
+        {
+            opts.FapiProfile = profile;
+            opts.PushedAuthorizationEnabled = true;
+            opts.JarmEnabled = true;
+            opts.StaticClients =
+            [
+                .. opts.StaticClients,
+                new Client
+                {
+                    ClientId = "fapi-par-client",
+                    AllowedGrantTypes = grantTypes,
+                    ResponseTypes = responseTypes,
+                    AllowedScopes = ["openid"],
+                    RedirectUris = ["https://client.test.example.com/callback"],
+                    RequireConsent = false,
+                    TokenEndpointAuthMethod = "private_key_jwt",
+                    JwksJson = jwksJson,
+                },
+            ];
+        });
+    }
+
+    private static async Task<string> PushAsync(TestWebApp app, RSA rsa, List<KeyValuePair<string, string>> form)
+    {
+        var assertion = BuildClientJwtAssertion("fapi-par-client", "https://auth.test.example.com/connect/par",
+            new RsaSecurityKey(rsa.ExportParameters(true)), SecurityAlgorithms.RsaSha256);
+        form.Add(new("client_id", "fapi-par-client"));
+        form.Add(new("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"));
+        form.Add(new("client_assertion", assertion));
+
+        var resp = await app.Client.PostAsync("/connect/par", new FormUrlEncodedContent(form));
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        return JsonDocument.Parse(await resp.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("request_uri").GetString()!;
+    }
+
     private static string BuildClientJwtAssertion(
         string clientId, string audience, SecurityKey signingKey, string alg)
     {

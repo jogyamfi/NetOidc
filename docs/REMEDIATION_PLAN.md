@@ -206,55 +206,86 @@ above, or leaves work for a later item:
 
 ## Phase 3 — Specification conformance (OIDC Core / OAuth 2.x)
 
-- [ ] **P3.1 Public clients (`token_endpoint_auth_method=none`)** — not supported by
+- [x] **P3.1 Public clients (`token_endpoint_auth_method=none`)** — not supported by
   `ClientAuthenticator`, so SPA/native code flow, device flow and DCR-registered public clients
   cannot reach the token endpoint. Support it, with PKCE mandatory.
-- [ ] **P3.2 Authorization endpoint POST** — map POST (form) as required by OIDC Core §3.1.2.1.
-- [ ] **P3.3 `prompt`, `max_age`, `login_hint`, `id_token_hint`, `acr_values`, `ui_locales`** — **BREAKING**
+- [x] **P3.2 Authorization endpoint POST** — map POST (form) as required by OIDC Core §3.1.2.1.
+- [x] **P3.3 `prompt`, `max_age`, `login_hint`, `id_token_hint`, `acr_values`, `ui_locales`** — **BREAKING**
   - Redesign `IInteractionService` to receive a full `InteractionRequest` and return login
     time, acr/amr and consent state. `prompt=none` must return `login_required` /
     `consent_required` / `interaction_required` instead of redirecting.
   - Replace auto-consent in `DefaultInteractionService` with a consent store (`Grant` model).
-- [ ] **P3.4 ID token content** ([TokenFactory.cs](../src/NetOidc.Provider/Jose/TokenFactory.cs))
+- [x] **P3.4 ID token content** ([TokenFactory.cs](../src/NetOidc.Provider/Jose/TokenFactory.cs))
   - `at_hash` / `c_hash` for hybrid and implicit responses (required by OIDC Core §3.3.2.11).
   - `auth_time` = actual authentication time (from P3.3), not issuance time.
   - `azp` when needed; `acr` honouring `acr_values`.
   - Apply ID-token encryption at the token endpoint too (currently only in the implicit flow,
     because `client` is not passed in).
-- [ ] **P3.5 `claims` request parameter** — `ClaimsEngine` is dead code; wire it into the
+- [x] **P3.5 `claims` request parameter** — `ClaimsEngine` is dead code; wire it into the
   ID token and UserInfo (including `essential` and `value(s)`), and pass claims through JAR/PAR.
-- [ ] **P3.6 Pairwise subject handling** — keep the local subject in grants/sessions and map to
+- [x] **P3.6 Pairwise subject handling** — keep the local subject in grants/sessions and map to
   pairwise only at token issuance; `FindUserClaims` must receive the local subject; sessions and
   back-channel logout must send each client its own `sub`.
-- [ ] **P3.7 JAR semantics** — per RFC 9101 §6.3 use only request-object parameters (plus
+- [x] **P3.7 JAR semantics** — per RFC 9101 §6.3 use only request-object parameters (plus
   `client_id`); require `request_uri` fetching or reject it explicitly; honour
   `JarRequireSignedRequestObject` (currently unused).
-- [ ] **P3.8 PKCE** — default to rejecting a missing `code_challenge_method` (or treat as
+- [x] **P3.8 PKCE** — default to rejecting a missing `code_challenge_method` (or treat as
   `plain` only when explicitly allowed); make `plain` opt-in.
-- [ ] **P3.9 Grants model** — use the existing `Grant` model to link codes, access tokens and
+- [x] **P3.9 Grants model** — use the existing `Grant` model to link codes, access tokens and
   refresh tokens (enables P1.4 code-replay revocation, P1.8 families, P2.5 cascade).
-- [ ] **P3.10 Grant-type enforcement** — check `AllowedGrantTypes` for `authorization_code` and
+- [x] **P3.10 Grant-type enforcement** — check `AllowedGrantTypes` for `authorization_code` and
   `refresh_token`; replace the non-standard `"hybrid"` grant with response-type allowlists on the
   client (`ResponseTypes`) — **BREAKING** `Client` model.
-- [ ] **P3.11 Refresh** — support `scope` downscoping; honour `IssueRefreshTokens`; optional
+- [x] **P3.11 Refresh** — support `scope` downscoping; honour `IssueRefreshTokens`; optional
   ID token on refresh; configurable rotation.
-- [ ] **P3.12 Resource indicators** — resources must drive the access-token `aud`, be validated
+- [x] **P3.12 Resource indicators** — resources must drive the access-token `aud`, be validated
   against an allowlist, and be re-requestable at the token endpoint.
-- [ ] **P3.13 FAPI runtime enforcement** — FAPI 2: refuse to issue unbound tokens (require DPoP
+- [x] **P3.13 FAPI runtime enforcement** — FAPI 2: refuse to issue unbound tokens (require DPoP
   or mTLS), allow `self_signed_tls_client_auth`; FAPI 1 Advanced: allowed auth methods are
   `private_key_jwt`, `tls_client_auth`, `self_signed_tls_client_auth` only; require PAR/JAR
   where the profile mandates it.
-- [ ] **P3.14 CIBA**
+- [x] **P3.14 CIBA**
   - Add a public `ICibaService.CompleteAsync(authReqId, subject, approve)` (docs reference a
     non-existent `CompleteCibaRequestAsync`).
   - Run the out-of-band hook without the request's cancellation token and observe exceptions.
   - Validate `id_token_hint`/`login_hint_token`, `requested_expiry`, `binding_message`,
     `user_code`; signed authentication requests.
   - Implement **ping** and **push** delivery modes.
-- [ ] **P3.15 Device flow** — increase interval on `slow_down` (RFC 8628 §3.5); consume
+- [x] **P3.15 Device flow** — increase interval on `slow_down` (RFC 8628 §3.5); consume
   approved device codes atomically; validate scopes against registered scopes.
-- [ ] **P3.16 Logout** — confirmation step when no valid `id_token_hint`; session lookup via the
+- [x] **P3.16 Logout** — confirmation step when no valid `id_token_hint`; session lookup via the
   `netoidc.sid` cookie; session TTL; front-channel logout; `typ: logout+jwt`.
+
+### Phase 3 — implementation notes (branch `feat/p3-conformance`)
+
+All sixteen items are implemented with regression tests (393 tests pass) and an end-to-end
+check against the sample host (login → authorize with PKCE → token → UserInfo → logout).
+Most new tests depend on APIs introduced in this phase, so unlike Phases 1–2 they were not
+run against `main`. Token issuance for every grant now goes through one
+`TokenIssuanceService`. Differences from the text above, and follow-ups:
+
+| Item | Note |
+|------|------|
+| P3.1 | Public clients authenticate by `client_id` alone and always need PKCE. They can also call introspection/revocation, where they only ever see their own tokens. |
+| P3.3 | New `IInteractionService.EvaluateAsync(InteractionRequest)` contract (**BREAKING**). Consent is a new `Consent` model with `ConsentService`, not the `Grant` model: grants track token lineage, consent is per (client, subject). Suspended requests are recorded as `PendingInteraction` and resumed via an `interaction` parameter. New options: `ConsentPath`, `InteractionLifetimeSeconds`; new `Client.RequireConsent` (default **true**; DCR clients always). `login_hint`, `ui_locales` and `acr_values` are passed to the login page. |
+| P3.4 | `azp` is not emitted: ID tokens always have a single audience. `acr` is whatever the interaction service reports (the default reads an `acr` claim); `acr_values` are passed to the login page. `auth_time` falls back to the auth cookie's issue time; without either, `max_age` forces a login. |
+| P3.5 | `FindUserClaims` now receives a `UserClaimsRequest` (**BREAKING**) and output is filtered to claims justified by scopes (OIDC Core §5.4, or `Scope.Claims`) or the `claims` request. `value`/`values` are only enforced for an essential `acr`. |
+| P3.6 | Records (codes, tokens, sessions, grants, consent) hold the local subject; pairwise `sub` is computed per client at every output (ID/access tokens, UserInfo, introspection, logout tokens). |
+| P3.7 | `request_uri` by reference returns `request_uri_not_supported`; discovery advertises `request_uri_parameter_supported: false`. PAR records whether the pushed parameters came from a request object. |
+| P3.9 | Each authorization creates a `Grant`; codes are kept as tombstones for the access-token lifetime so a late replay still revokes. Device/CIBA flows create their grant at redemption. |
+| P3.10 | `"hybrid"` is gone: hybrid clients list `authorization_code` + `implicit` and the hybrid `ResponseTypes`. A refresh token is only issued when the client lists `refresh_token`. |
+| P3.11 | New `RotateRefreshTokens` (default true); unbound public-client tokens always rotate. The token response now includes `scope`. |
+| P3.12 | New `AllowedResources` (required allowlist) and `Client.AllowedResources`. Access-token `aud` = issuer + resources, so tokens stay usable at the OP's UserInfo endpoint. |
+| P3.13 | FAPI 1: request object or PAR required. FAPI 2: PAR required, and the token endpoint refuses to issue unbound tokens (DPoP or mTLS). Also enforced at runtime: FAPI 2 Message Signing requires JAR + JARM, and FAPI-CIBA requires signed requests and forbids push. |
+| P3.14 | `ICibaService.CompleteAsync` resolves requests; ping notifies and push delivers tokens (with `auth_req_id`, `at_hash`, `rt_hash`) to `CibaClientNotificationEndpoint` through the SSRF-safe clients. Push tokens are not sender-constrained (no proof channel). `user_code` and `login_hint_token` are passed to the host hook for verification. |
+| P3.15 | `auth_time` for device grants is the approval time. |
+| P3.16 | New `LogoutConfirmationPath` (host page) and `SessionLifetimeSeconds`, `FrontChannelLogoutEnabled`, `Client.FrontChannelLogoutUri`/`FrontChannelLogoutSessionRequired`. |
+
+Bugs found and fixed while doing this phase:
+
+- **Back-channel logout never worked:** the `events` claim could not be serialized, and the error was swallowed.
+- **Resumed PAR requests failed:** a pushed `request_uri` was consumed before the login redirect, so the resumed request failed.
+- **Sample host logout was missing:** logout was never enabled there, so the sample client's sign-out hit a missing endpoint.
 
 ---
 

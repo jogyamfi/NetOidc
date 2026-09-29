@@ -12,4 +12,7 @@ public sealed class PushedAuthorizationRequest
     public required string ParametersJson { get; init; }
 
     public required DateTimeOffset ExpiresAt { get; init; }
+
+    /// <summary>True when the parameters came from a verified signed request object (JAR).</summary>
+    public bool FromRequestObject { get; init; }
 }

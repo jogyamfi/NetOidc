@@ -31,6 +31,15 @@ public sealed class DeviceCode
 
     /// <summary>Tracks the last time the client polled to enforce the minimum interval.</summary>
     public DateTimeOffset? LastPolledAt { get; set; }
+
+    /// <summary>
+    /// Current minimum polling interval in seconds; raised by 5 on every <c>slow_down</c>
+    /// (RFC 8628 §3.5).
+    /// </summary>
+    public int IntervalSeconds { get; set; }
+
+    /// <summary>When the End-User approved the request (used as <c>auth_time</c>).</summary>
+    public DateTimeOffset? AuthTime { get; set; }
 }
 
 public enum DeviceCodeStatus

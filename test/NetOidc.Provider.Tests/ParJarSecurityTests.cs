@@ -175,6 +175,7 @@ public sealed class ParJarSecurityTests : IDisposable
                     AllowedGrantTypes = ["authorization_code"],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = [Callback],
+                    RequireConsent = false,
                     RequirePkce = false,
                     RequireSignedRequestObject = true,
                     JwksJson = jwks,
@@ -187,6 +188,7 @@ public sealed class ParJarSecurityTests : IDisposable
                     AllowedGrantTypes = ["authorization_code"],
                     AllowedScopes = ["openid"],
                     RedirectUris = [Callback],
+                    RequireConsent = false,
                 },
             ];
         });

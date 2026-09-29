@@ -81,6 +81,21 @@ public sealed class DiscoveryDocument
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool BackChannelLogoutSessionSupported { get; init; }
 
+    [JsonPropertyName("frontchannel_logout_supported")]
+    public bool FrontChannelLogoutSupported { get; init; }
+
+    [JsonPropertyName("frontchannel_logout_session_supported")]
+    public bool FrontChannelLogoutSessionSupported { get; init; }
+
+    [JsonPropertyName("prompt_values_supported")]
+    public IReadOnlyList<string> PromptValuesSupported { get; init; } = [];
+
+    [JsonPropertyName("claims_supported")]
+    public IReadOnlyList<string>? ClaimsSupported { get; init; }
+
+    [JsonPropertyName("request_uri_parameter_supported")]
+    public bool RequestUriParameterSupported { get; init; }
+
     // ── Phase 4 ────────────────────────────────────────────────────────────────
 
     [JsonPropertyName("pushed_authorization_request_endpoint")]

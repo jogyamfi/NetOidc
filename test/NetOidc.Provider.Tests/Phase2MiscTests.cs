@@ -150,6 +150,7 @@ public sealed class Phase2MiscTests
                     AllowedGrantTypes = ["authorization_code"],
                     AllowedScopes = ["openid"],
                     RedirectUris = ["http://localhost:12345/callback"],
+                    RequireConsent = false,
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
                 },

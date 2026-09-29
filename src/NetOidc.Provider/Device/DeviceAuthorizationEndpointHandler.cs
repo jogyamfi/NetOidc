@@ -70,8 +70,11 @@ public sealed class DeviceAuthorizationEndpointHandler
             ? client.AllowedScopes.ToList()
             : scopeParam.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
 
+        var registeredScopes = opts.Scopes.Select(s => s.Name).ToHashSet();
         foreach (var scope in requestedScopes)
         {
+            if (!registeredScopes.Contains(scope))
+                return Error(OAuthError.InvalidScope($"unknown scope '{scope}'"), 400);
             if (!client.AllowedScopes.Contains(scope))
                 return Error(OAuthError.InvalidScope($"scope '{scope}' is not allowed for this client"), 400);
         }
@@ -87,6 +90,7 @@ public sealed class DeviceAuthorizationEndpointHandler
             ClientId = client.ClientId,
             RequestedScopes = requestedScopes,
             ExpiresAt = expiresAt,
+            IntervalSeconds = opts.DevicePollingIntervalSeconds,
         };
 
         await _deviceCodeStore.StoreAsync(

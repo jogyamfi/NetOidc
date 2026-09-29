@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Claims;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Jose;
 using OidcSession = NetOidc.Provider.Abstractions.Models.Session;
@@ -24,14 +25,17 @@ public sealed class BackChannelLogoutService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptions<ProviderOptions> _options;
     private readonly ILogger<BackChannelLogoutService> _logger;
+    private readonly SubjectIdentifierService _subjects;
 
     public BackChannelLogoutService(
         IClientStore clientStore,
         TokenFactory tokenFactory,
         IHttpClientFactory httpClientFactory,
         IOptions<ProviderOptions> options,
-        ILogger<BackChannelLogoutService> logger)
+        ILogger<BackChannelLogoutService> logger,
+        SubjectIdentifierService subjects)
     {
+        _subjects = subjects;
         _logger = logger;
         _clientStore = clientStore;
         _tokenFactory = tokenFactory;
@@ -61,7 +65,9 @@ public sealed class BackChannelLogoutService
 
             var jti = GenerateJti();
             var sid = client.BackChannelLogoutSessionRequired ? sessionId : null;
-            var logoutToken = _tokenFactory.CreateLogoutToken(subject, clientId, jti, sid, lifetimeSeconds);
+            // Each client receives the subject as it knows it (pairwise when configured).
+            var logoutToken = _tokenFactory.CreateLogoutToken(
+                _subjects.Compute(subject, client), clientId, jti, sid, lifetimeSeconds);
 
             // Operator-configured clients are trusted to target internal RPs; URLs supplied
             // through DCR are not.

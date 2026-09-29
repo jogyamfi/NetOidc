@@ -45,7 +45,8 @@ public static class EndpointRouteBuilderExtensions
             Results.Json(discovery.BuildJwks())));
 
         // Authorization
-        endpoints.MapGet(opts.AuthorizationEndpoint,
+        // OIDC Core §3.1.2.1: the authorization endpoint accepts GET and POST.
+        endpoints.MapMethods(opts.AuthorizationEndpoint, ["GET", "POST"],
             (AuthorizationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct));
 

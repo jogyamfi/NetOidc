@@ -1,10 +1,7 @@
-using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
 using NetOidc.Provider.Abstractions.Adapters;
-using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Authorization;
 using NetOidc.Provider.Configuration;
@@ -17,9 +14,8 @@ namespace NetOidc.Provider.Token;
 /// <summary>
 /// Handles the token endpoint: dispatches authorization_code, refresh_token,
 /// client_credentials, token-exchange (RFC 8693), jwt-bearer (RFC 7523),
-/// device_code (RFC 8628), and CIBA grant types.
-/// Phase 5: DPoP proof validation and mTLS certificate binding.
-/// Phase 6: device_code and CIBA poll grants.
+/// device_code (RFC 8628), and CIBA grant types. Tokens are minted by
+/// <see cref="TokenIssuanceService"/>.
 /// </summary>
 public sealed class TokenEndpointHandler
 {
@@ -30,19 +26,21 @@ public sealed class TokenEndpointHandler
 
     private const string GrantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange";
     private const string GrantTypeJwtBearer = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+    private const string GrantTypeDeviceCode = "urn:ietf:params:oauth:grant-type:device_code";
+    private const string GrantTypeCiba = "urn:ietf:params:oauth:grant-type:ciba";
 
     private readonly IOptions<ProviderOptions> _options;
     private readonly ClientAuthenticator _clientAuthenticator;
     private readonly IAdapter<AuthorizationCode> _codeStore;
     private readonly RefreshTokenService _refreshTokens;
-    private readonly IAdapter<AccessToken> _accessTokenStore;
     private readonly IAdapter<DeviceCode> _deviceCodeStore;
     private readonly IAdapter<BackchannelAuthenticationRequest> _cibaStore;
     private readonly TokenFactory _tokenFactory;
     private readonly DPopProofValidator _dpopValidator;
-    private readonly IProviderEventSink _events;
     private readonly IReplayCache _replayCache;
     private readonly AccessTokenService _accessTokens;
+    private readonly TokenIssuanceService _issuer;
+    private readonly GrantService _grants;
     private readonly ILogger<TokenEndpointHandler> _logger;
 
     public TokenEndpointHandler(
@@ -50,30 +48,33 @@ public sealed class TokenEndpointHandler
         ClientAuthenticator clientAuthenticator,
         IAdapter<AuthorizationCode> codeStore,
         RefreshTokenService refreshTokens,
-        IAdapter<AccessToken> accessTokenStore,
         IAdapter<DeviceCode> deviceCodeStore,
         IAdapter<BackchannelAuthenticationRequest> cibaStore,
         TokenFactory tokenFactory,
         DPopProofValidator dpopValidator,
-        IProviderEventSink events,
         IReplayCache replayCache,
         AccessTokenService accessTokens,
+        TokenIssuanceService issuer,
+        GrantService grants,
         ILogger<TokenEndpointHandler> logger)
     {
-        _logger = logger;
-        _replayCache = replayCache;
-        _accessTokens = accessTokens;
         _options = options;
         _clientAuthenticator = clientAuthenticator;
         _codeStore = codeStore;
         _refreshTokens = refreshTokens;
-        _accessTokenStore = accessTokenStore;
         _deviceCodeStore = deviceCodeStore;
         _cibaStore = cibaStore;
         _tokenFactory = tokenFactory;
         _dpopValidator = dpopValidator;
-        _events = events;
+        _replayCache = replayCache;
+        _accessTokens = accessTokens;
+        _issuer = issuer;
+        _grants = grants;
+        _logger = logger;
     }
+
+    /// <summary>Sender-constraint material presented with the token request.</summary>
+    private sealed record Binding(string? Jkt, string? X5tS256);
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
     {
@@ -98,11 +99,10 @@ public sealed class TokenEndpointHandler
             if (!opts.DPoPEnabled)
                 return TokenError(OAuthError.InvalidRequest("DPoP is not supported by this server"), 400);
 
-            var tokenEndpointUri = opts.Issuer.TrimEnd('/') + opts.TokenEndpoint;
             cnfJwkThumbprint = await _dpopValidator.ValidateProofAsync(
                 dpopHeader,
                 context.Request.Method,
-                tokenEndpointUri,
+                opts.Issuer.TrimEnd('/') + opts.TokenEndpoint,
                 accessToken: null,
                 clockSkewSeconds: opts.DPoPProofLifetimeSeconds);
 
@@ -110,36 +110,37 @@ public sealed class TokenEndpointHandler
                 return TokenError(OAuthError.InvalidDPoPProof("DPoP proof is missing or invalid"), 400);
         }
 
+        var isFapi2 = opts.FapiProfile is FapiProfile.Fapi2Security or FapiProfile.Fapi2MessageSigning or FapiProfile.FapiCiba;
+
         // ── mTLS certificate binding (RFC 8705 §3) ──────────────────────────────
         string? cnfX5tS256 = null;
-        if (opts.MtlsEnabled && client.UseMtlsBoundTokens)
+        if (opts.MtlsEnabled && (client.UseMtlsBoundTokens || isFapi2) && cnfJwkThumbprint is null)
         {
             var cert = _clientAuthenticator.GetClientCertificate(context);
             if (cert is not null)
                 cnfX5tS256 = ClientAuthenticator.ComputeCertThumbprint(cert);
         }
 
+        // FAPI 2.0 §5.3.2.1: every access token must be sender-constrained.
+        if (isFapi2 && cnfJwkThumbprint is null && cnfX5tS256 is null)
+            return TokenError(OAuthError.InvalidRequest(
+                "FAPI 2.0: sender-constrained tokens are required (present a DPoP proof or client certificate)"), 400);
+
+        var binding = new Binding(cnfJwkThumbprint, cnfX5tS256);
         var grantType = form["grant_type"].ToString();
         return grantType switch
         {
-            "authorization_code" => await HandleAuthorizationCodeAsync(
-                form, client, cnfJwkThumbprint, cnfX5tS256, ct),
-            "refresh_token" => await HandleRefreshTokenAsync(
-                form, client, cnfJwkThumbprint, cnfX5tS256, ct),
-            "client_credentials" => await HandleClientCredentialsAsync(
-                form, client, cnfJwkThumbprint, cnfX5tS256, ct),
-            "urn:ietf:params:oauth:grant-type:token-exchange"
-                when opts.TokenExchangeEnabled
-                => await HandleTokenExchangeAsync(form, client, cnfJwkThumbprint, cnfX5tS256, ct),
-            "urn:ietf:params:oauth:grant-type:jwt-bearer"
-                when opts.JwtBearerGrantEnabled
-                => await HandleJwtBearerAsync(form, client, cnfJwkThumbprint, cnfX5tS256, ct),
-            "urn:ietf:params:oauth:grant-type:device_code"
-                when opts.DeviceFlowEnabled
-                => await HandleDeviceCodeAsync(form, client, cnfJwkThumbprint, cnfX5tS256, ct),
-            "urn:ietf:params:oauth:grant-type:ciba"
-                when opts.CibaEnabled
-                => await HandleCibaAsync(form, client, cnfJwkThumbprint, cnfX5tS256, ct),
+            "authorization_code" => await HandleAuthorizationCodeAsync(form, client, binding, ct),
+            "refresh_token" => await HandleRefreshTokenAsync(form, client, binding, ct),
+            "client_credentials" => await HandleClientCredentialsAsync(form, client, binding, ct),
+            GrantTypeTokenExchange when opts.TokenExchangeEnabled
+                => await HandleTokenExchangeAsync(form, client, binding, ct),
+            GrantTypeJwtBearer when opts.JwtBearerGrantEnabled
+                => await HandleJwtBearerAsync(form, client, binding, ct),
+            GrantTypeDeviceCode when opts.DeviceFlowEnabled
+                => await HandleDeviceCodeAsync(form, client, binding, ct),
+            GrantTypeCiba when opts.CibaEnabled
+                => await HandleCibaAsync(form, client, binding, ct),
             _ => TokenError(OAuthError.UnsupportedGrantType(), 400),
         };
     }
@@ -147,10 +148,11 @@ public sealed class TokenEndpointHandler
     // ── authorization_code grant ───────────────────────────────────────────────
 
     private async Task<IResult> HandleAuthorizationCodeAsync(
-        IFormCollection form, Client client,
-        string? cnfJwkThumbprint, string? cnfX5tS256,
-        CancellationToken ct)
+        IFormCollection form, Client client, Binding binding, CancellationToken ct)
     {
+        if (!client.AllowedGrantTypes.Contains("authorization_code"))
+            return TokenError(OAuthError.UnauthorizedClient("authorization_code not allowed for this client"), 400);
+
         var code = form["code"].ToString();
         var redirectUri = form["redirect_uri"].ToString();
         var codeVerifier = form["code_verifier"].ToString();
@@ -161,6 +163,16 @@ public sealed class TokenEndpointHandler
         var authCode = await _codeStore.ConsumeAsync(code, ct);
         if (authCode is null)
             return TokenError(OAuthError.InvalidGrant("authorization code not found or already used"), 400);
+
+        if (authCode.ConsumedAt is not null)
+        {
+            // RFC 6749 §4.1.2: a replayed code revokes every token issued from it.
+            if (authCode.GrantId is not null)
+                await _grants.RevokeAsync(authCode.GrantId, ct);
+            await StoreCodeTombstoneAsync(code, authCode, ct);
+            return TokenError(OAuthError.InvalidGrant("authorization code already used; issued tokens were revoked"), 400);
+        }
+        await StoreCodeTombstoneAsync(code, authCode, ct);
 
         if (authCode.ClientId != client.ClientId)
             return TokenError(OAuthError.InvalidGrant("client_id mismatch"), 400);
@@ -175,174 +187,152 @@ public sealed class TokenEndpointHandler
         if (!string.IsNullOrEmpty(redirectUri) && !string.Equals(authCode.RedirectUri, redirectUri, StringComparison.Ordinal))
             return TokenError(OAuthError.InvalidGrant("redirect_uri mismatch"), 400);
 
-        // PKCE validation
+        // PKCE (RFC 7636 §4.6). A verifier without a challenge is a downgrade attempt (RFC 9700 §2.1.1).
         if (authCode.CodeChallenge is not null)
         {
             if (string.IsNullOrEmpty(codeVerifier))
                 return TokenError(OAuthError.InvalidRequest("code_verifier is required"), 400);
-            if (!PkceValidator.Validate(codeVerifier, authCode.CodeChallenge,
-                    authCode.CodeChallengeMethod ?? "plain"))
+            if (!PkceValidator.Validate(codeVerifier, authCode.CodeChallenge, authCode.CodeChallengeMethod ?? "plain"))
                 return TokenError(OAuthError.InvalidGrant("code_verifier does not match code_challenge"), 400);
         }
-
-        var opts = _options.Value;
-
-        // Issue the refresh token first so the access token joins its grant (revocation cascade).
-        var refresh = opts.IssueRefreshTokens
-            ? await _refreshTokens.IssueAsync(
-                client, authCode.Subject, authCode.Scopes, authCode.Resources,
-                authCode.AuthorizationDetailsJson, cnfJwkThumbprint, cnfX5tS256, ct)
-            : null;
-        var refreshTokenValue = refresh?.Value;
-
-        var tokenId = GenerateId();
-        var atValue = _tokenFactory.CreateAccessToken(
-            tokenId, authCode.Subject, client.ClientId, authCode.Scopes,
-            cnfJwkThumbprint, cnfX5tS256);
-
-        var at = new AccessToken
+        else if (!string.IsNullOrEmpty(codeVerifier))
         {
-            TokenId = tokenId,
-            GrantId = refresh?.GrantId ?? tokenId,
-            ClientId = client.ClientId,
+            return TokenError(OAuthError.InvalidGrant("code_verifier supplied but no code_challenge was sent"), 400);
+        }
+
+        var (resources, resourceError) = NarrowResources(form, authCode.Resources);
+        if (resourceError is not null)
+            return TokenError(resourceError, 400);
+
+        var issued = await _issuer.IssueAsync(new TokenIssuanceRequest
+        {
+            Client = client,
+            GrantType = "authorization_code",
             Subject = authCode.Subject,
             Scopes = authCode.Scopes,
-            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
-            Resource = authCode.Resources.Count > 0 ? authCode.Resources[0] : null,
+            Resources = resources,
             AuthorizationDetailsJson = authCode.AuthorizationDetailsJson,
-            CnfJwkThumbprint = cnfJwkThumbprint,
-            CnfX5tS256 = cnfX5tS256,
-        };
-        await _accessTokenStore.StoreAsync(tokenId, at,
-            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+            CnfJwkThumbprint = binding.Jkt,
+            CnfX5tS256 = binding.X5tS256,
+            GrantId = authCode.GrantId,
+            IncludeRefreshToken = true,
+            ClaimsRequest = authCode.ClaimsRequest,
+            IdToken = new IdTokenParameters(authCode.AuthTime, authCode.Nonce, authCode.Acr, authCode.Amr,
+                authCode.SessionId, authCode.ClaimsRequest),
+        }, ct);
 
-        string? idToken = null;
-        if (authCode.Scopes.Contains("openid"))
-            idToken = _tokenFactory.CreateIdToken(
-                authCode.Subject, client.ClientId, authCode.Nonce, authCode.AuthTime,
-                acr: authCode.Acr, amr: authCode.Amr, sid: authCode.SessionId);
-
-        var body = BuildTokenBody(atValue, opts.AccessTokenLifetimeSeconds, refreshTokenValue, idToken,
-            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
+        var body = BuildTokenBody(issued);
         if (authCode.AuthorizationDetailsJson is not null)
-            body["authorization_details"] = System.Text.Json.JsonSerializer
-                .Deserialize<object>(authCode.AuthorizationDetailsJson)!;
-
-        await _events.TokenIssuedAsync(new TokenIssuedEvent(
-            client.ClientId, authCode.Subject, "authorization_code",
-            authCode.Scopes, DateTimeOffset.UtcNow), ct);
-
+            body["authorization_details"] = System.Text.Json.JsonSerializer.Deserialize<object>(authCode.AuthorizationDetailsJson)!;
         return Results.Json(body, statusCode: 200);
     }
 
-    // ── refresh_token grant ────────────────────────────────────────────────────
+    private Task StoreCodeTombstoneAsync(string code, AuthorizationCode authCode, CancellationToken ct)
+    {
+        // Kept for the access-token lifetime so a late replay can still revoke what was issued.
+        var lifetime = TimeSpan.FromSeconds(_options.Value.AccessTokenLifetimeSeconds);
+        return _codeStore.StoreAsync(code, new AuthorizationCode
+        {
+            Code = authCode.Code,
+            ClientId = authCode.ClientId,
+            RedirectUri = authCode.RedirectUri,
+            Subject = authCode.Subject,
+            AuthTime = authCode.AuthTime,
+            ExpiresAt = authCode.ExpiresAt,
+            GrantId = authCode.GrantId,
+            ConsumedAt = authCode.ConsumedAt ?? DateTimeOffset.UtcNow,
+        }, lifetime, ct);
+    }
+
+    // ── refresh_token grant (RFC 6749 §6) ─────────────────────────────────────
 
     private async Task<IResult> HandleRefreshTokenAsync(
-        IFormCollection form, Client client,
-        string? cnfJwkThumbprint, string? cnfX5tS256,
-        CancellationToken ct)
+        IFormCollection form, Client client, Binding binding, CancellationToken ct)
     {
+        if (!client.AllowedGrantTypes.Contains("refresh_token"))
+            return TokenError(OAuthError.UnauthorizedClient("refresh_token not allowed for this client"), 400);
+
         var rtValue = form["refresh_token"].ToString();
         if (string.IsNullOrEmpty(rtValue))
             return TokenError(OAuthError.InvalidRequest("refresh_token is required"), 400);
 
-        var rotation = await _refreshTokens.RotateAsync(rtValue, client, cnfJwkThumbprint, cnfX5tS256, ct);
-        if (!rotation.Succeeded)
-            return TokenError(OAuthError.InvalidGrant(rotation.Error), 400);
-        var rt = rotation.Token!;
+        var redemption = await _refreshTokens.RedeemAsync(rtValue, client, binding.Jkt, binding.X5tS256, ct);
+        if (!redemption.Succeeded)
+            return TokenError(OAuthError.InvalidGrant(redemption.Error), 400);
+        var rt = redemption.Token!;
 
-        var opts = _options.Value;
-
-        // Keep the family; a bound token stays bound to the key it was issued for.
-        var successor = await _refreshTokens.IssueSuccessorAsync(client, rt, ct);
-
-        var newTokenId = GenerateId();
-        var atValue = _tokenFactory.CreateAccessToken(
-            newTokenId, rt.Subject, client.ClientId, rt.Scopes,
-            cnfJwkThumbprint, cnfX5tS256);
-
-        var newAt = new AccessToken
+        // RFC 6749 §6: a narrower scope may be requested; the refresh token keeps the original.
+        var scopes = rt.Scopes;
+        var scopeParam = form["scope"].ToString();
+        if (!string.IsNullOrEmpty(scopeParam))
         {
-            TokenId = newTokenId,
-            GrantId = successor.GrantId,
-            ClientId = client.ClientId,
+            var requested = scopeParam.Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct().ToList();
+            var excess = requested.Where(s => !rt.Scopes.Contains(s)).ToList();
+            if (excess.Count > 0)
+                return TokenError(OAuthError.InvalidScope($"Scope(s) not originally granted: {string.Join(" ", excess)}"), 400);
+            scopes = requested;
+        }
+
+        var (resources, resourceError) = NarrowResources(form, rt.Resources);
+        if (resourceError is not null)
+            return TokenError(resourceError, 400);
+
+        var issued = await _issuer.IssueAsync(new TokenIssuanceRequest
+        {
+            Client = client,
+            GrantType = "refresh_token",
             Subject = rt.Subject,
-            Scopes = rt.Scopes,
-            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
-            Resource = rt.Resources.Count > 0 ? rt.Resources[0] : null,
+            Scopes = scopes,
+            Resources = resources,
             AuthorizationDetailsJson = rt.AuthorizationDetailsJson,
-            CnfJwkThumbprint = cnfJwkThumbprint,
-            CnfX5tS256 = cnfX5tS256,
-        };
-        await _accessTokenStore.StoreAsync(newTokenId, newAt,
-            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+            CnfJwkThumbprint = binding.Jkt,
+            CnfX5tS256 = binding.X5tS256,
+            PreviousRefreshToken = rt,
+            RefreshTokenRotated = redemption.Rotated,
+            ClaimsRequest = rt.ClaimsRequest,
+            // OIDC Core §12.2: a refreshed ID token carries the original authentication context.
+            IdToken = rt.AuthTime is { } authTime
+                ? new IdTokenParameters(authTime, Acr: rt.Acr, Amr: rt.Amr, SessionId: rt.SessionId,
+                    ClaimsRequest: rt.ClaimsRequest)
+                : null,
+        }, ct);
 
-        await _events.TokenIssuedAsync(new TokenIssuedEvent(
-            client.ClientId, rt.Subject, "refresh_token",
-            rt.Scopes, DateTimeOffset.UtcNow), ct);
-
-        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, successor.Value, idToken: null,
-            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
+        return Results.Json(BuildTokenBody(issued), statusCode: 200);
     }
 
     // ── client_credentials grant ───────────────────────────────────────────────
 
     private async Task<IResult> HandleClientCredentialsAsync(
-        IFormCollection form, Client client,
-        string? cnfJwkThumbprint, string? cnfX5tS256,
-        CancellationToken ct)
+        IFormCollection form, Client client, Binding binding, CancellationToken ct)
     {
         if (!client.AllowedGrantTypes.Contains("client_credentials"))
             return TokenError(OAuthError.UnauthorizedClient("client_credentials not allowed for this client"), 400);
 
-        var scopeStr = form["scope"].ToString();
-        var requestedScopes = string.IsNullOrEmpty(scopeStr)
-            ? client.AllowedScopes.ToList()
-            : scopeStr.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        var (requestedScopes, scopeError) = ValidateScopes(form["scope"].ToString(), client);
+        if (scopeError is not null)
+            return TokenError(scopeError, 400);
 
-        var registeredScopes = _options.Value.Scopes.Select(s => s.Name).ToHashSet();
-        var unknownScopes = requestedScopes.Where(s => !registeredScopes.Contains(s)).ToList();
-        if (unknownScopes.Count > 0)
-            return TokenError(OAuthError.InvalidScope($"Unknown scope(s): {string.Join(" ", unknownScopes)}"), 400);
+        var (resources, resourceError) = RequestedResources(form, client);
+        if (resourceError is not null)
+            return TokenError(resourceError, 400);
 
-        var disallowedScopes = requestedScopes.Where(s => !client.AllowedScopes.Contains(s)).ToList();
-        if (disallowedScopes.Count > 0)
-            return TokenError(OAuthError.InvalidScope($"Client not authorized for scope(s): {string.Join(" ", disallowedScopes)}"), 400);
-
-        var opts = _options.Value;
-        var tokenId = GenerateId();
-        var atValue = _tokenFactory.CreateAccessToken(
-            tokenId, subject: null, client.ClientId, requestedScopes,
-            cnfJwkThumbprint, cnfX5tS256);
-
-        var at = new AccessToken
+        var issued = await _issuer.IssueAsync(new TokenIssuanceRequest
         {
-            TokenId = tokenId,
-            GrantId = tokenId,
-            ClientId = client.ClientId,
-            Subject = null,
+            Client = client,
+            GrantType = "client_credentials",
             Scopes = requestedScopes,
-            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
-            CnfJwkThumbprint = cnfJwkThumbprint,
-            CnfX5tS256 = cnfX5tS256,
-        };
-        await _accessTokenStore.StoreAsync(tokenId, at,
-            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+            Resources = resources,
+            CnfJwkThumbprint = binding.Jkt,
+            CnfX5tS256 = binding.X5tS256,
+        }, ct);
 
-        await _events.TokenIssuedAsync(new TokenIssuedEvent(
-            client.ClientId, Subject: null, "client_credentials",
-            requestedScopes, DateTimeOffset.UtcNow), ct);
-
-        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshToken: null, idToken: null,
-            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
+        return Results.Json(BuildTokenBody(issued), statusCode: 200);
     }
 
     // ── token-exchange grant (RFC 8693) ───────────────────────────────────────
 
     private async Task<IResult> HandleTokenExchangeAsync(
-        IFormCollection form, Client client,
-        string? cnfJwkThumbprint, string? cnfX5tS256,
-        CancellationToken ct)
+        IFormCollection form, Client client, Binding binding, CancellationToken ct)
     {
         if (!client.AllowedGrantTypes.Contains(GrantTypeTokenExchange))
             return TokenError(OAuthError.UnauthorizedClient("token-exchange not allowed for this client"), 400);
@@ -371,10 +361,9 @@ public sealed class TokenEndpointHandler
                 var live = await _accessTokens.ValidateAsync(subjectToken, ct);
                 if (live is null)
                     return TokenError(OAuthError.InvalidGrant("subject_token is invalid, expired or revoked"), 400);
-                var at = live.Record;
-                subject = at.Subject;
-                subjectClientId = at.ClientId;
-                subjectScopes = at.Scopes;
+                subject = live.Record.Subject;
+                subjectClientId = live.Record.ClientId;
+                subjectScopes = live.Record.Scopes;
                 break;
             }
             case TokenTypeRefreshToken:
@@ -393,6 +382,7 @@ public sealed class TokenEndpointHandler
                 var aud = principal?.FindFirst("azp")?.Value ?? principal?.FindFirst("aud")?.Value;
                 if (principal is null || aud is null)
                     return TokenError(OAuthError.InvalidGrant("subject_token (id_token) is invalid or expired"), 400);
+                // The ID token carries the (possibly pairwise) subject as issued to its client.
                 subject = principal.FindFirst("sub")?.Value;
                 subjectClientId = aud;
                 subjectScopes = ["openid"];
@@ -420,12 +410,16 @@ public sealed class TokenEndpointHandler
                     $"Scope(s) exceed the subject token or client grant: {string.Join(" ", excess)}"), 400);
         }
 
+        var (resources, resourceError) = RequestedResources(form, client);
+        if (resourceError is not null)
+            return TokenError(resourceError, 400);
+
         var opts = _options.Value;
         var exchange = new TokenExchangeContext(
             client.ClientId, subjectClientId, subject, subjectTokenType,
             subjectScopes, requestedScopes,
             form["audience"].Where(a => !string.IsNullOrEmpty(a)).Select(a => a!).ToList(),
-            form["resource"].Where(r => !string.IsNullOrEmpty(r)).Select(r => r!).ToList());
+            resources);
 
         var permitted = opts.AuthorizeTokenExchange is null
             ? subjectClientId == client.ClientId
@@ -433,27 +427,18 @@ public sealed class TokenEndpointHandler
         if (!permitted)
             return TokenError(OAuthError.InvalidGrant("client is not permitted to exchange this subject_token"), 400);
 
-        var tokenId = GenerateId();
-        var atValue = _tokenFactory.CreateAccessToken(
-            tokenId, subject, client.ClientId, requestedScopes,
-            cnfJwkThumbprint, cnfX5tS256);
-
-        var newAt = new AccessToken
+        var issued = await _issuer.IssueAsync(new TokenIssuanceRequest
         {
-            TokenId = tokenId,
-            GrantId = tokenId,
-            ClientId = client.ClientId,
+            Client = client,
+            GrantType = GrantTypeTokenExchange,
             Subject = subject,
             Scopes = requestedScopes,
-            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
-            CnfJwkThumbprint = cnfJwkThumbprint,
-            CnfX5tS256 = cnfX5tS256,
-        };
-        await _accessTokenStore.StoreAsync(tokenId, newAt,
-            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+            Resources = resources,
+            CnfJwkThumbprint = binding.Jkt,
+            CnfX5tS256 = binding.X5tS256,
+        }, ct);
 
-        var body = BuildTokenBody(atValue, opts.AccessTokenLifetimeSeconds, null, null,
-            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
+        var body = BuildTokenBody(issued);
         body["issued_token_type"] = TokenTypeAccessToken;
         return Results.Json(body, statusCode: 200);
     }
@@ -461,9 +446,7 @@ public sealed class TokenEndpointHandler
     // ── jwt-bearer grant (RFC 7523) ────────────────────────────────────────────
 
     private async Task<IResult> HandleJwtBearerAsync(
-        IFormCollection form, Client client,
-        string? cnfJwkThumbprint, string? cnfX5tS256,
-        CancellationToken ct)
+        IFormCollection form, Client client, Binding binding, CancellationToken ct)
     {
         if (!client.AllowedGrantTypes.Contains(GrantTypeJwtBearer))
             return TokenError(OAuthError.UnauthorizedClient("jwt-bearer not allowed for this client"), 400);
@@ -499,9 +482,7 @@ public sealed class TokenEndpointHandler
             return TokenError(OAuthError.InvalidGrant("assertion signature, issuer, audience or lifetime is invalid"), 400);
         }
 
-        var subject = result.Claims.TryGetValue("sub", out var subVal)
-            ? subVal?.ToString()
-            : null;
+        var subject = result.Claims.TryGetValue("sub", out var subVal) ? subVal?.ToString() : null;
 
         // RFC 7523 §3: jti enables one-time use; require it and refuse replays.
         var jti = result.Claims.TryGetValue("jti", out var jtiVal) ? jtiVal?.ToString() : null;
@@ -513,20 +494,9 @@ public sealed class TokenEndpointHandler
         if (!await _replayCache.TryAddAsync($"jwt-bearer:{client.ClientId}:{jti}", assertionExpiry, ct))
             return TokenError(OAuthError.InvalidGrant("assertion has already been used"), 400);
 
-        var scopeStr = form["scope"].ToString();
-        var requestedScopes = string.IsNullOrEmpty(scopeStr)
-            ? client.AllowedScopes.ToList()
-            : scopeStr.Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct().ToList();
-
-        var registeredScopes = opts.Scopes.Select(s => s.Name).ToHashSet();
-        var unknownScopes = requestedScopes.Where(s => !registeredScopes.Contains(s)).ToList();
-        if (unknownScopes.Count > 0)
-            return TokenError(OAuthError.InvalidScope($"Unknown scope(s): {string.Join(" ", unknownScopes)}"), 400);
-
-        var disallowedScopes = requestedScopes.Where(s => !client.AllowedScopes.Contains(s)).ToList();
-        if (disallowedScopes.Count > 0)
-            return TokenError(OAuthError.InvalidScope(
-                $"Client not authorized for scope(s): {string.Join(" ", disallowedScopes)}"), 400);
+        var (requestedScopes, scopeError) = ValidateScopes(form["scope"].ToString(), client);
+        if (scopeError is not null)
+            return TokenError(scopeError, 400);
 
         // Only the operator can say which subjects a client may speak for.
         var permitted = opts.AuthorizeJwtBearerSubject is not null &&
@@ -535,37 +505,30 @@ public sealed class TokenEndpointHandler
         if (!permitted)
             return TokenError(OAuthError.InvalidGrant("client is not permitted to assert this subject"), 400);
 
-        var tokenId = GenerateId();
-        var atValue = _tokenFactory.CreateAccessToken(
-            tokenId, subject, client.ClientId, requestedScopes,
-            cnfJwkThumbprint, cnfX5tS256);
+        var (resources, resourceError) = RequestedResources(form, client);
+        if (resourceError is not null)
+            return TokenError(resourceError, 400);
 
-        var at = new AccessToken
+        var issued = await _issuer.IssueAsync(new TokenIssuanceRequest
         {
-            TokenId = tokenId,
-            GrantId = tokenId,
-            ClientId = client.ClientId,
+            Client = client,
+            GrantType = GrantTypeJwtBearer,
             Subject = subject,
             Scopes = requestedScopes,
-            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
-            CnfJwkThumbprint = cnfJwkThumbprint,
-            CnfX5tS256 = cnfX5tS256,
-        };
-        await _accessTokenStore.StoreAsync(tokenId, at,
-            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+            Resources = resources,
+            CnfJwkThumbprint = binding.Jkt,
+            CnfX5tS256 = binding.X5tS256,
+        }, ct);
 
-        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, null, null,
-            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
+        return Results.Json(BuildTokenBody(issued), statusCode: 200);
     }
 
     // ── device_code grant (RFC 8628 §3.4) ────────────────────────────────────
 
     private async Task<IResult> HandleDeviceCodeAsync(
-        IFormCollection form, Client client,
-        string? cnfJwkThumbprint, string? cnfX5tS256,
-        CancellationToken ct)
+        IFormCollection form, Client client, Binding binding, CancellationToken ct)
     {
-        if (!client.AllowedGrantTypes.Contains("urn:ietf:params:oauth:grant-type:device_code"))
+        if (!client.AllowedGrantTypes.Contains(GrantTypeDeviceCode))
             return TokenError(OAuthError.UnauthorizedClient("device_code grant not allowed for this client"), 400);
 
         var deviceCodeValue = form["device_code"].ToString();
@@ -582,32 +545,24 @@ public sealed class TokenEndpointHandler
         if (deviceCode.ExpiresAt <= DateTimeOffset.UtcNow)
             return TokenError(OAuthError.ExpiredToken("device code has expired"), 400);
 
-        // Enforce minimum polling interval (RFC 8628 §3.5)
-        var opts = _options.Value;
+        // RFC 8628 §3.5: enforce the interval, and add 5 seconds on every slow_down.
         var now = DateTimeOffset.UtcNow;
-        if (deviceCode.LastPolledAt.HasValue)
+        var remaining = deviceCode.ExpiresAt - now;
+        if (deviceCode.LastPolledAt.HasValue &&
+            (now - deviceCode.LastPolledAt.Value).TotalSeconds < deviceCode.IntervalSeconds)
         {
-            var elapsed = now - deviceCode.LastPolledAt.Value;
-            if (elapsed.TotalSeconds < opts.DevicePollingIntervalSeconds)
-            {
-                deviceCode.LastPolledAt = now;
-                var remaining = deviceCode.ExpiresAt - now;
-                if (remaining > TimeSpan.Zero)
-                    await _deviceCodeStore.StoreAsync(deviceCodeValue, deviceCode, remaining, ct);
-                return TokenError(OAuthError.SlowDown("polling too frequently"), 400);
-            }
+            deviceCode.LastPolledAt = now;
+            deviceCode.IntervalSeconds += 5;
+            await _deviceCodeStore.StoreAsync(deviceCodeValue, deviceCode, remaining, ct);
+            return TokenError(OAuthError.SlowDown($"polling too frequently; wait {deviceCode.IntervalSeconds} seconds"), 400);
         }
         deviceCode.LastPolledAt = now;
 
         switch (deviceCode.Status)
         {
             case DeviceCodeStatus.Pending:
-            {
-                var remaining = deviceCode.ExpiresAt - now;
-                if (remaining > TimeSpan.Zero)
-                    await _deviceCodeStore.StoreAsync(deviceCodeValue, deviceCode, remaining, ct);
+                await _deviceCodeStore.StoreAsync(deviceCodeValue, deviceCode, remaining, ct);
                 return TokenError(OAuthError.AuthorizationPending("user has not yet authorized"), 400);
-            }
             case DeviceCodeStatus.Denied:
                 await _deviceCodeStore.RemoveAsync(deviceCodeValue, ct);
                 return TokenError(OAuthError.AccessDenied("user denied the authorization request"), 400);
@@ -617,52 +572,32 @@ public sealed class TokenEndpointHandler
         if (await _deviceCodeStore.ConsumeAsync(deviceCodeValue, ct) is null)
             return TokenError(OAuthError.InvalidGrant("device code already redeemed"), 400);
 
-        var refresh = opts.IssueRefreshTokens
-            ? await _refreshTokens.IssueAsync(
-                client, deviceCode.Subject!, deviceCode.GrantedScopes, resources: [],
-                authorizationDetailsJson: null, cnfJwkThumbprint, cnfX5tS256, ct)
-            : null;
-        var refreshTokenValue = refresh?.Value;
-
-        var tokenId = GenerateId();
-        var atValue = _tokenFactory.CreateAccessToken(
-            tokenId, deviceCode.Subject!, client.ClientId, deviceCode.GrantedScopes,
-            cnfJwkThumbprint, cnfX5tS256);
-
-        var at = new AccessToken
+        var issued = await _issuer.IssueAsync(new TokenIssuanceRequest
         {
-            TokenId = tokenId,
-            GrantId = refresh?.GrantId ?? tokenId,
-            ClientId = client.ClientId,
-            Subject = deviceCode.Subject,
+            Client = client,
+            GrantType = GrantTypeDeviceCode,
+            Subject = deviceCode.Subject!,
             Scopes = deviceCode.GrantedScopes,
-            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
-            CnfJwkThumbprint = cnfJwkThumbprint,
-            CnfX5tS256 = cnfX5tS256,
-        };
-        await _accessTokenStore.StoreAsync(tokenId, at,
-            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
+            CnfJwkThumbprint = binding.Jkt,
+            CnfX5tS256 = binding.X5tS256,
+            IncludeRefreshToken = true,
+            IdToken = new IdTokenParameters(deviceCode.AuthTime ?? deviceCode.CreatedAt),
+        }, ct);
 
-        string? idToken = null;
-        if (deviceCode.GrantedScopes.Contains("openid"))
-            idToken = _tokenFactory.CreateIdToken(
-                deviceCode.Subject!, client.ClientId, nonce: null,
-                authTime: deviceCode.CreatedAt,
-                acr: null, amr: null, sid: null);
-
-        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshTokenValue, idToken,
-            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
+        return Results.Json(BuildTokenBody(issued), statusCode: 200);
     }
 
-    // ── CIBA poll grant (OpenID CIBA Core 1.0 §10) ────────────────────────────
+    // ── CIBA poll/ping grant (OpenID CIBA Core 1.0 §10) ───────────────────────
 
     private async Task<IResult> HandleCibaAsync(
-        IFormCollection form, Client client,
-        string? cnfJwkThumbprint, string? cnfX5tS256,
-        CancellationToken ct)
+        IFormCollection form, Client client, Binding binding, CancellationToken ct)
     {
-        if (!client.AllowedGrantTypes.Contains("urn:ietf:params:oauth:grant-type:ciba"))
+        if (!client.AllowedGrantTypes.Contains(GrantTypeCiba))
             return TokenError(OAuthError.UnauthorizedClient("CIBA grant not allowed for this client"), 400);
+
+        // CIBA §10.3: push-mode clients receive tokens at their notification endpoint.
+        if (client.CibaDeliveryMode == "push")
+            return TokenError(OAuthError.UnauthorizedClient("push-mode clients cannot poll the token endpoint"), 400);
 
         var authReqId = form["auth_req_id"].ToString();
         if (string.IsNullOrEmpty(authReqId))
@@ -678,32 +613,24 @@ public sealed class TokenEndpointHandler
         if (authRequest.ExpiresAt <= DateTimeOffset.UtcNow)
             return TokenError(OAuthError.ExpiredToken("auth_req_id has expired"), 400);
 
-        // Enforce minimum polling interval
+        // Poll mode: enforce the minimum interval. Ping-mode clients only poll once notified.
         var opts = _options.Value;
         var now = DateTimeOffset.UtcNow;
-        if (authRequest.LastPolledAt.HasValue)
+        var remaining = authRequest.ExpiresAt - now;
+        if (authRequest.DeliveryMode == "poll" && authRequest.LastPolledAt.HasValue &&
+            (now - authRequest.LastPolledAt.Value).TotalSeconds < opts.CibaPollingIntervalSeconds)
         {
-            var elapsed = now - authRequest.LastPolledAt.Value;
-            if (elapsed.TotalSeconds < opts.CibaPollingIntervalSeconds)
-            {
-                authRequest.LastPolledAt = now;
-                var remaining = authRequest.ExpiresAt - now;
-                if (remaining > TimeSpan.Zero)
-                    await _cibaStore.StoreAsync(authReqId, authRequest, remaining, ct);
-                return TokenError(OAuthError.SlowDown("polling too frequently"), 400);
-            }
+            authRequest.LastPolledAt = now;
+            await _cibaStore.StoreAsync(authReqId, authRequest, remaining, ct);
+            return TokenError(OAuthError.SlowDown("polling too frequently"), 400);
         }
         authRequest.LastPolledAt = now;
 
         switch (authRequest.Status)
         {
             case BackchannelAuthenticationStatus.Pending:
-            {
-                var remaining = authRequest.ExpiresAt - now;
-                if (remaining > TimeSpan.Zero)
-                    await _cibaStore.StoreAsync(authReqId, authRequest, remaining, ct);
+                await _cibaStore.StoreAsync(authReqId, authRequest, remaining, ct);
                 return TokenError(OAuthError.AuthorizationPending("user has not yet authenticated"), 400);
-            }
             case BackchannelAuthenticationStatus.Denied:
                 await _cibaStore.RemoveAsync(authReqId, ct);
                 return TokenError(OAuthError.AccessDenied("user denied the authentication request"), 400);
@@ -713,71 +640,89 @@ public sealed class TokenEndpointHandler
         if (await _cibaStore.ConsumeAsync(authReqId, ct) is null)
             return TokenError(OAuthError.InvalidGrant("auth_req_id already redeemed"), 400);
 
-        var refresh = opts.IssueRefreshTokens
-            ? await _refreshTokens.IssueAsync(
-                client, authRequest.Subject!, authRequest.GrantedScopes, resources: [],
-                authorizationDetailsJson: null, cnfJwkThumbprint, cnfX5tS256, ct)
-            : null;
-        var refreshTokenValue = refresh?.Value;
-
-        var tokenId = GenerateId();
-        var atValue = _tokenFactory.CreateAccessToken(
-            tokenId, authRequest.Subject!, client.ClientId, authRequest.GrantedScopes,
-            cnfJwkThumbprint, cnfX5tS256);
-
-        var at = new AccessToken
-        {
-            TokenId = tokenId,
-            GrantId = refresh?.GrantId ?? tokenId,
-            ClientId = client.ClientId,
-            Subject = authRequest.Subject,
-            Scopes = authRequest.GrantedScopes,
-            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.AccessTokenLifetimeSeconds),
-            CnfJwkThumbprint = cnfJwkThumbprint,
-            CnfX5tS256 = cnfX5tS256,
-        };
-        await _accessTokenStore.StoreAsync(tokenId, at,
-            TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
-
-        string? idToken = null;
-        if (authRequest.GrantedScopes.Contains("openid"))
-            idToken = _tokenFactory.CreateIdToken(
-                authRequest.Subject!, client.ClientId, nonce: null,
-                authTime: authRequest.CreatedAt,
-                acr: null, amr: null, sid: null);
-
-        return TokenSuccess(atValue, opts.AccessTokenLifetimeSeconds, refreshTokenValue, idToken,
-            tokenType: cnfJwkThumbprint is not null ? "DPoP" : "Bearer");
+        var issued = await _issuer.IssueAsync(CibaTokenRequest(client, authRequest, binding.Jkt, binding.X5tS256), ct);
+        return Results.Json(BuildTokenBody(issued), statusCode: 200);
     }
+
+    /// <summary>The token issuance request for an approved CIBA authentication request.</summary>
+    internal static TokenIssuanceRequest CibaTokenRequest(
+        Client client, BackchannelAuthenticationRequest authRequest, string? jkt, string? x5t) => new()
+    {
+        Client = client,
+        GrantType = GrantTypeCiba,
+        Subject = authRequest.Subject!,
+        Scopes = authRequest.GrantedScopes,
+        CnfJwkThumbprint = jkt,
+        CnfX5tS256 = x5t,
+        IncludeRefreshToken = true,
+        IdToken = new IdTokenParameters(authRequest.AuthTime ?? authRequest.CreatedAt, Acr: authRequest.Acr),
+    };
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
-    private static IResult TokenSuccess(
-        string accessToken, int expiresIn, string? refreshToken, string? idToken,
-        string tokenType = "Bearer")
+    /// <summary>Validates a requested scope string (default: all client scopes).</summary>
+    private (List<string> Scopes, OAuthError? Error) ValidateScopes(string scopeStr, Client client)
     {
-        var body = BuildTokenBody(accessToken, expiresIn, refreshToken, idToken, tokenType);
-        return Results.Json(body, statusCode: 200);
+        var requested = string.IsNullOrEmpty(scopeStr)
+            ? client.AllowedScopes.ToList()
+            : scopeStr.Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct().ToList();
+
+        var registered = _options.Value.Scopes.Select(s => s.Name).ToHashSet();
+        var unknown = requested.Where(s => !registered.Contains(s)).ToList();
+        if (unknown.Count > 0)
+            return ([], OAuthError.InvalidScope($"Unknown scope(s): {string.Join(" ", unknown)}"));
+
+        var disallowed = requested.Where(s => !client.AllowedScopes.Contains(s)).ToList();
+        if (disallowed.Count > 0)
+            return ([], OAuthError.InvalidScope($"Client not authorized for scope(s): {string.Join(" ", disallowed)}"));
+
+        return (requested, null);
     }
 
-    private static Dictionary<string, object> BuildTokenBody(
-        string accessToken, int expiresIn, string? refreshToken, string? idToken,
-        string tokenType = "Bearer")
+    /// <summary>
+    /// RFC 8707 §2.2: at a code or refresh grant, <c>resource</c> may narrow the audience to a
+    /// subset of what was authorized; without it every authorized resource applies.
+    /// </summary>
+    private (IReadOnlyList<string> Resources, OAuthError? Error) NarrowResources(
+        IFormCollection form, IReadOnlyList<string> authorized)
+    {
+        var requested = form["resource"].Where(r => !string.IsNullOrEmpty(r)).Select(r => r!).Distinct().ToList();
+        if (requested.Count == 0) return (authorized, null);
+        if (!_options.Value.ResourceIndicatorsEnabled)
+            return ([], OAuthError.InvalidTarget("resource indicators are not enabled"));
+        var excess = requested.Where(r => !authorized.Contains(r)).ToList();
+        return excess.Count > 0
+            ? ([], OAuthError.InvalidTarget($"resource(s) not authorized: {string.Join(" ", excess)}"))
+            : (requested, null);
+    }
+
+    /// <summary>Validates <c>resource</c> parameters for grants without a prior authorization.</summary>
+    private (IReadOnlyList<string> Resources, OAuthError? Error) RequestedResources(IFormCollection form, Client client)
+    {
+        var requested = form["resource"].Where(r => !string.IsNullOrEmpty(r)).Select(r => r!).Distinct().ToList();
+        if (requested.Count == 0) return ([], null);
+        var opts = _options.Value;
+        if (!opts.ResourceIndicatorsEnabled)
+            return ([], OAuthError.InvalidTarget("resource indicators are not enabled"));
+        return ResourceIndicators.Validate(requested, opts, client) is { } error
+            ? ([], OAuthError.InvalidTarget(error))
+            : (requested, null);
+    }
+
+    private static Dictionary<string, object> BuildTokenBody(IssuedTokens issued)
     {
         var body = new Dictionary<string, object>
         {
-            ["access_token"] = accessToken,
-            ["token_type"] = tokenType,
-            ["expires_in"] = expiresIn,
+            ["access_token"] = issued.AccessToken,
+            ["token_type"] = issued.TokenType,
+            ["expires_in"] = issued.ExpiresIn,
+            ["scope"] = string.Join(' ', issued.AccessTokenRecord.Scopes),
         };
-        if (refreshToken is not null) body["refresh_token"] = refreshToken;
-        if (idToken is not null) body["id_token"] = idToken;
+        if (issued.RefreshToken is not null) body["refresh_token"] = issued.RefreshToken;
+        if (issued.IdToken is not null) body["id_token"] = issued.IdToken;
         return body;
     }
 
     private static IResult TokenError(OAuthError error, int status) =>
         Results.Json(error, statusCode: status);
-
-    private static string GenerateId() =>
-        Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
 }

@@ -95,7 +95,7 @@ public sealed class ParEndpointHandler
 
             paramsDict = form.Keys
                 .Where(k => !ClientAuthParameters.Contains(k))
-                .ToDictionary(k => k, k => form[k].ToString(), StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(k => k, k => k == "resource" ? string.Join(' ', form[k].ToArray()) : form[k].ToString(), StringComparer.Ordinal);
         }
         paramsDict["client_id"] = client.ClientId;   // normalise
 
@@ -143,6 +143,7 @@ public sealed class ParEndpointHandler
             ClientId = client.ClientId,
             ParametersJson = JsonSerializer.Serialize(paramsDict),
             ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(opts.PushedAuthorizationLifetimeSeconds),
+            FromRequestObject = !string.IsNullOrEmpty(requestJwt),
         };
 
         await _parStore.StoreAsync(

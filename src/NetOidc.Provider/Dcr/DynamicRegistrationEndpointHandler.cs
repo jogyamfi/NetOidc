@@ -146,6 +146,8 @@ public sealed class DynamicRegistrationEndpointHandler
             AllowedScopes = updated.AllowedScopes,
             TokenEndpointAuthMethod = updated.TokenEndpointAuthMethod,
             RequirePkce = updated.RequirePkce,
+            ResponseTypes = updated.ResponseTypes,
+            RequireConsent = true,
             IsDynamic = true,
             RegistrationAccessTokenHash = tokenHash,
             ClientIdIssuedAt = existing.ClientIdIssuedAt,
@@ -302,6 +304,9 @@ public sealed class DynamicRegistrationEndpointHandler
             AllowedScopes = allowedScopes,
             TokenEndpointAuthMethod = authMethod,
             RequirePkce = requirePkce,
+            ResponseTypes = responseTypes,
+            // Dynamically registered clients are third parties: always ask the End-User.
+            RequireConsent = true,
             IsDynamic = true,
             RegistrationAccessTokenHash = HashToken(registrationToken),
             ClientIdIssuedAt = now,
@@ -333,7 +338,7 @@ public sealed class DynamicRegistrationEndpointHandler
             RegistrationClientUri = $"{issuer}{opts.RegistrationEndpoint}/{client.ClientId}",
             TokenEndpointAuthMethod = client.TokenEndpointAuthMethod,
             GrantTypes = client.AllowedGrantTypes,
-            ResponseTypes = DeriveResponseTypes(client.AllowedGrantTypes),
+            ResponseTypes = client.ResponseTypes,
             RedirectUris = client.RedirectUris,
             Scope = scope,
             ClientName = client.ClientName,
@@ -344,17 +349,6 @@ public sealed class DynamicRegistrationEndpointHandler
             BackChannelLogoutSessionRequired = client.BackChannelLogoutSessionRequired,
             PostLogoutRedirectUris = client.PostLogoutRedirectUris.Count > 0 ? client.PostLogoutRedirectUris : null,
         };
-    }
-
-    private static IReadOnlyList<string> DeriveResponseTypes(IReadOnlyList<string> grantTypes)
-    {
-        var types = new HashSet<string>();
-        foreach (var g in grantTypes)
-        {
-            if (g == "authorization_code") types.Add("code");
-            if (g == "implicit") { types.Add("token"); types.Add("id_token"); }
-        }
-        return types.Count > 0 ? [.. types] : ["code"];
     }
 
     private static string? ExtractBearer(HttpContext context)

@@ -72,6 +72,7 @@ public sealed class ErrorHygieneTests
                     AllowedGrantTypes = ["authorization_code"],
                     AllowedScopes = ["openid"],
                     RedirectUris = ["https://client.test.example.com/callback"],
+                    RequireConsent = false,
                     JwksJson = JsonSerializer.Serialize(new { keys = new[] { new { kty = "RSA", n = jwk.N, e = jwk.E } } }),
                 },
             ];

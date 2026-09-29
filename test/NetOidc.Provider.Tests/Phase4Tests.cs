@@ -272,6 +272,7 @@ public sealed class Phase4Tests
         await using var app = TestWebApp.Create(opts =>
         {
             opts.ResourceIndicatorsEnabled = true;
+            opts.AllowedResources = ["https://api.example.com"];
         });
 
         await SignInAsync(app.Client, "resource-user");
@@ -488,6 +489,7 @@ public sealed class Phase4Tests
                     ],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = ["https://client.test.example.com/callback"],
+                    RequireConsent = false,
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
                     JwksJson = jwksJson,

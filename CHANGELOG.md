@@ -5,7 +5,35 @@ changes are allowed between minor versions and are listed explicitly.
 
 ## [Unreleased]
 
-Security remediation, Phases 1–2 (see [docs/REMEDIATION_PLAN.md](docs/REMEDIATION_PLAN.md)).
+Security remediation and specification conformance, Phases 1–3
+(see [docs/REMEDIATION_PLAN.md](docs/REMEDIATION_PLAN.md)).
+
+### Conformance — Phase 3
+
+- Public clients (`token_endpoint_auth_method=none`) with mandatory PKCE.
+- The authorization endpoint accepts POST, and supports `prompt` (`none`, `login`, `consent`,
+  `select_account`), `max_age`, `id_token_hint`, `login_hint`, `ui_locales`, `acr_values` and the
+  `claims` parameter. Requests suspended for login or consent resume where they left off, including
+  pushed requests.
+- Consent is stored per client and user (`ConsentService`); clients require consent by default.
+- ID tokens carry `at_hash`/`c_hash`, the real `auth_time`, and are encrypted at the token endpoint
+  when the client registered encryption. Claims are released only per scope or `claims` request.
+- Pairwise subjects are consistent everywhere (tokens, UserInfo, introspection, logout tokens), while
+  the claims source always receives the local subject.
+- JAR uses only the request object's parameters; `request_uri` by reference is rejected explicitly.
+- PKCE accepts only S256 unless `AllowPlainPkce`; malformed challenges/verifiers are rejected.
+- Authorization codes, refresh tokens and access tokens share a grant; replaying a code revokes them.
+- `grant_types` and `response_types` are enforced per client; refresh supports scope downscoping,
+  ID tokens on refresh and optional non-rotation.
+- Resource indicators are validated against an allowlist and become the access-token audience.
+- FAPI profiles are enforced at runtime (PAR/JAR/JARM requirements, sender-constrained tokens).
+- CIBA supports ping and push delivery, signed requests, `requested_expiry`, `binding_message` and
+  `user_code`; the host resolves requests through `ICibaService`.
+- Device flow `slow_down` raises the interval; scopes are validated.
+- Logout asks for confirmation without a valid `id_token_hint`, finds the session from its cookie,
+  expires sessions, supports front-channel logout, and types logout tokens `logout+jwt`.
+- Fixed: back-channel logout tokens could never be serialized (no logout notification was ever sent).
+- Fixed: a pushed request was consumed before the login redirect, so it could not be resumed.
 
 ### Security — Phase 2 (hardening)
 
@@ -77,7 +105,37 @@ Security remediation, Phases 1–2 (see [docs/REMEDIATION_PLAN.md](docs/REMEDIAT
   `DeviceAuthorizationEndpointHandler`, `DynamicRegistrationEndpointHandler`, `RequestObjectValidator`
   and `VciEndpointHandler` constructors changed.
 
+- Phase 3: `ProviderOptions.FindUserClaims` is now
+  `Func<UserClaimsRequest, CancellationToken, Task<IReadOnlyDictionary<string, object>>>` and its
+  output is filtered to scope-released or requested claims (it receives the local subject).
+- Phase 3: `IInteractionService` is replaced by `EvaluateAsync(InteractionRequest)` returning an
+  `InteractionOutcome`; `DefaultInteractionService` no longer auto-consents.
+- Phase 3: `Client.RequireConsent` defaults to true — set it to false for first-party clients or
+  provide a consent page at `ConsentPath`.
+- Phase 3: the `"hybrid"` grant type is removed; clients declare `ResponseTypes` (default `code`) and
+  hybrid clients list `authorization_code` and `implicit`.
+- Phase 3: refresh tokens are only issued to clients whose `AllowedGrantTypes` include `refresh_token`,
+  and the refresh grant requires it.
+- Phase 3: PKCE `plain` (and a missing `code_challenge_method`) is rejected unless `AllowPlainPkce`.
+- Phase 3: resource indicators require `AllowedResources`; `AccessToken.Resource` became `Resources`.
+- Phase 3: JAR requests ignore parameters outside the request object; `request_uri` must come from PAR.
+- Phase 3: FAPI 1.0 no longer accepts `client_secret_jwt` or public clients; FAPI profiles require
+  PAR/JAR as described in the remediation plan, and FAPI 2.0 refuses unbound tokens.
+- Phase 3: logout without a valid `id_token_hint` redirects to `LogoutConfirmationPath`.
+- Phase 3: `RefreshTokenService` API (`IssueAsync(Client, RefreshTokenContent, …)`, `RedeemAsync`),
+  `SubjectIdentifierService`, CIBA and device models changed; most endpoint handler constructors changed.
+
 ### Added
+
+- Phase 3: `TokenIssuanceService`, `GrantService`, `ConsentService`, `UserClaimsService`,
+  `ICibaService`/`CibaService`, `ResourceIndicators`; models `Consent`, `PendingInteraction`.
+- Phase 3 `ProviderOptions`: `ConsentPath`, `InteractionLifetimeSeconds`, `RotateRefreshTokens`,
+  `AllowPlainPkce`, `AllowedResources`, `LogoutConfirmationPath`, `SessionLifetimeSeconds`,
+  `FrontChannelLogoutEnabled`, `CibaMaxRequestedExpirySeconds`, `CibaMaxBindingMessageLength`.
+- Phase 3 `Client`: `ResponseTypes`, `RequireConsent`, `AllowedResources`, `FrontChannelLogoutUri`,
+  `FrontChannelLogoutSessionRequired`, `BackchannelUserCodeParameter`; `Scope.Claims`.
+- Phase 3 discovery: `prompt_values_supported`, `claims_supported`, `request_uri_parameter_supported`,
+  front-channel logout metadata, `none` auth method, CIBA `ping`/`push`.
 
 - Phase 2: `AccessTokenService`, `RequestThrottle`, `ClientMetadataValidationException`,
   `AuthorizationCode.RedirectUriInRequest`.

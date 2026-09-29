@@ -1,41 +1,90 @@
 using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Options;
-using NetOidc.Provider.Configuration;
+using Microsoft.AspNetCore.Authentication;
+using NetOidc.Provider.Abstractions.Models;
 
 namespace NetOidc.Provider.Interaction;
 
 /// <summary>
-/// Default implementation: trusts ASP.NET Core cookie authentication and auto-consents
-/// to all scopes that are registered in <see cref="ProviderOptions.Scopes"/>.
+/// Default implementation on top of ASP.NET Core authentication:
+/// <list type="bullet">
+///   <item>the End-User is whoever the default authentication scheme authenticates
+///   (<c>NameIdentifier</c> or <c>sub</c> claim);</item>
+///   <item><c>auth_time</c> is the <c>auth_time</c> claim when present, otherwise the
+///   authentication ticket's issue time;</item>
+///   <item><c>acr</c> and <c>amr</c> come from claims of the same names;</item>
+///   <item>consent is read from <see cref="ConsentService"/> for clients with
+///   <see cref="Client.RequireConsent"/>.</item>
+/// </list>
 /// </summary>
 public sealed class DefaultInteractionService : IInteractionService
 {
-    private readonly IOptions<ProviderOptions> _options;
+    private readonly ConsentService _consents;
 
-    public DefaultInteractionService(IOptions<ProviderOptions> options) => _options = options;
+    public DefaultInteractionService(ConsentService consents) => _consents = consents;
 
-    public Task<InteractionResult?> GetInteractionResultAsync(
-        HttpContext context,
-        string clientId,
-        IReadOnlyList<string> requestedScopes,
-        CancellationToken ct = default)
+    public async Task<InteractionOutcome> EvaluateAsync(InteractionRequest request, CancellationToken ct = default)
     {
-        if (context.User.Identity?.IsAuthenticated != true)
-            return Task.FromResult<InteractionResult?>(null);
+        var context = request.HttpContext;
+        var resumed = request.ResumedInteraction;
 
-        var subject = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
-                      ?? context.User.FindFirstValue("sub");
+        // ── Authentication ───────────────────────────────────────────────────
+        var auth = await context.AuthenticateAsync();
+        var user = auth.Succeeded ? auth.Principal! : context.User;
+        var subject = user.Identity?.IsAuthenticated == true
+            ? user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")
+            : null;
         if (subject is null)
-            return Task.FromResult<InteractionResult?>(null);
+            return InteractionOutcome.Requires(InteractionOutcomeKind.LoginRequired);
 
-        var registeredScopes = _options.Value.Scopes.Select(s => s.Name).ToHashSet();
-        var granted = requestedScopes.Where(s => registeredScopes.Contains(s)).ToList();
+        var authTime = ReadAuthTime(user, auth.Properties);
 
-        return Task.FromResult<InteractionResult?>(new InteractionResult
+        // A login that happened after the request was suspended satisfies prompt=login/select_account.
+        // Authentication times have one-second precision, so compare at that precision.
+        var suspendedAt = resumed is null ? DateTimeOffset.MaxValue : TruncateToSecond(resumed.CreatedAt);
+        var freshLogin = authTime >= suspendedAt;
+
+        if ((request.Prompt.Contains("login") || request.Prompt.Contains("select_account")) && !freshLogin)
+            return InteractionOutcome.Requires(request.Prompt.Contains("login")
+                ? InteractionOutcomeKind.LoginRequired
+                : InteractionOutcomeKind.AccountSelectionRequired);
+
+        // OIDC Core §3.1.2.1: re-authenticate when the last login is older than max_age
+        // (a login completed for this very request always satisfies it, including max_age=0).
+        if (request.MaxAge is { } maxAge && !freshLogin &&
+            DateTimeOffset.UtcNow - authTime > TimeSpan.FromSeconds(maxAge))
+            return InteractionOutcome.Requires(InteractionOutcomeKind.LoginRequired);
+
+        // ── Consent ──────────────────────────────────────────────────────────
+        if (request.Client.RequireConsent)
         {
+            var consent = await _consents.FindAsync(request.Client.ClientId, subject, ct);
+            var covered = consent is not null && request.RequestedScopes.All(consent.Scopes.Contains);
+            var freshConsent = consent is not null && resumed is not null &&
+                               consent.GrantedAt >= resumed.CreatedAt;
+
+            if (!covered || (request.Prompt.Contains("consent") && !freshConsent))
+                return InteractionOutcome.Requires(InteractionOutcomeKind.ConsentRequired);
+        }
+
+        return new InteractionOutcome
+        {
+            Kind = InteractionOutcomeKind.Completed,
             Subject = subject,
-            GrantedScopes = granted,
-        });
+            AuthTime = authTime,
+            GrantedScopes = request.RequestedScopes,
+            Acr = user.FindFirstValue("acr"),
+            Amr = user.FindAll("amr").Select(c => c.Value).ToList() is { Count: > 0 } amr ? amr : null,
+        };
+    }
+
+    private static DateTimeOffset TruncateToSecond(DateTimeOffset value) =>
+        new(value.Ticks - value.Ticks % TimeSpan.TicksPerSecond, value.Offset);
+
+    private static DateTimeOffset ReadAuthTime(ClaimsPrincipal user, AuthenticationProperties? properties)
+    {
+        if (long.TryParse(user.FindFirstValue("auth_time"), out var unix))
+            return DateTimeOffset.FromUnixTimeSeconds(unix);
+        // Unknown authentication time is treated as "long ago" so max_age forces a login.
+        return properties?.IssuedUtc ?? DateTimeOffset.MinValue;
     }
 }

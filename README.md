@@ -74,10 +74,12 @@ builder.Services.AddNetOidc(options =>
         {
             ClientId = "my-app",
             ClientSecret = "secret",
-            AllowedGrantTypes = ["authorization_code"],
+            AllowedGrantTypes = ["authorization_code", "refresh_token"],
             AllowedScopes = ["openid", "profile"],
             RedirectUris = ["https://myapp.example.com/callback"],
             RequirePkce = true,
+            // First-party app; third-party clients should keep the default consent step.
+            RequireConsent = false,
         }
     ];
 
@@ -87,12 +89,11 @@ builder.Services.AddNetOidc(options =>
         new Scope { Name = "profile" },
     ];
 
-    options.FindUserClaims = (sub, scopes, ct) =>
-    {
-        var claims = new Dictionary<string, object> { ["sub"] = sub };
-        if (scopes.Contains("profile")) claims["name"] = "Alice";
-        return Task.FromResult<IReadOnlyDictionary<string, object>>(claims);
-    };
+    // Return what you know about the user; only claims released by the granted scopes
+    // (or requested with the claims parameter) reach the client.
+    options.FindUserClaims = (request, ct) =>
+        Task.FromResult<IReadOnlyDictionary<string, object>>(
+            new Dictionary<string, object> { ["name"] = "Alice" });
 });
 
 app.UseAuthentication();

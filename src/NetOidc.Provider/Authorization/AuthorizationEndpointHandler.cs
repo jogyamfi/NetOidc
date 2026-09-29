@@ -14,32 +14,38 @@ using NetOidc.Provider.Errors;
 using NetOidc.Provider.Interaction;
 using NetOidc.Provider.Jose;
 using NetOidc.Provider.Session;
+using NetOidc.Provider.Token;
 
 namespace NetOidc.Provider.Authorization;
 
 /// <summary>
-/// Handles GET/POST requests to the authorization endpoint.
-/// Supports authorization_code, implicit, and hybrid flows per OIDC Core §3,
-/// plus PAR (RFC 9126), JAR (RFC 9101), JARM, resource indicators (RFC 8707),
-/// and rich authorization requests (RFC 9396).
+/// Handles GET and POST requests to the authorization endpoint (OIDC Core §3.1.2.1).
+/// Supports authorization_code, implicit and hybrid flows, PAR (RFC 9126), JAR (RFC 9101),
+/// JARM, resource indicators (RFC 8707), rich authorization requests (RFC 9396), the OIDC
+/// <c>prompt</c>/<c>max_age</c>/<c>id_token_hint</c>/<c>claims</c> parameters and FAPI profiles.
 /// </summary>
 public sealed class AuthorizationEndpointHandler
 {
-    // Normalized response_type sets (space-separated tokens, sorted alphabetically)
-    private static readonly HashSet<string> CodeResponseTypes = ["code"];
-    private static readonly HashSet<string> ImplicitResponseTypes = ["id_token", "id_token token", "token"];
-    private static readonly HashSet<string> HybridResponseTypes =
-        ["code id_token", "code id_token token", "code token"];
+    private const string InteractionParameter = "interaction";
+
+    private static readonly HashSet<string> KnownResponseTypes =
+    [
+        "code", "id_token", "token", "id_token token", "code id_token", "code token", "code id_token token",
+    ];
+
+    private static readonly HashSet<string> KnownPrompts = ["none", "login", "consent", "select_account"];
 
     private readonly IOptions<ProviderOptions> _options;
     private readonly IClientStore _clientStore;
     private readonly IAdapter<AuthorizationCode> _codeStore;
+    private readonly IAdapter<PushedAuthorizationRequest> _parStore;
+    private readonly IAdapter<PendingInteraction> _interactions;
     private readonly IInteractionService _interactionService;
     private readonly TokenFactory _tokenFactory;
-    private readonly SubjectIdentifierService _subjectIdentifier;
-    private readonly IAdapter<AccessToken> _accessTokenStore;
+    private readonly TokenIssuanceService _issuer;
+    private readonly GrantService _grants;
+    private readonly SubjectIdentifierService _subjects;
     private readonly SessionService _sessionService;
-    private readonly IAdapter<PushedAuthorizationRequest> _parStore;
     private readonly RequestObjectValidator _requestObjectValidator;
     private readonly IProviderEventSink _events;
 
@@ -47,35 +53,40 @@ public sealed class AuthorizationEndpointHandler
         IOptions<ProviderOptions> options,
         IClientStore clientStore,
         IAdapter<AuthorizationCode> codeStore,
+        IAdapter<PushedAuthorizationRequest> parStore,
+        IAdapter<PendingInteraction> interactions,
         IInteractionService interactionService,
         TokenFactory tokenFactory,
-        SubjectIdentifierService subjectIdentifier,
-        IAdapter<AccessToken> accessTokenStore,
+        TokenIssuanceService issuer,
+        GrantService grants,
+        SubjectIdentifierService subjects,
         SessionService sessionService,
-        IAdapter<PushedAuthorizationRequest> parStore,
         RequestObjectValidator requestObjectValidator,
         IProviderEventSink events)
     {
         _options = options;
         _clientStore = clientStore;
         _codeStore = codeStore;
+        _parStore = parStore;
+        _interactions = interactions;
         _interactionService = interactionService;
         _tokenFactory = tokenFactory;
-        _subjectIdentifier = subjectIdentifier;
-        _accessTokenStore = accessTokenStore;
+        _issuer = issuer;
+        _grants = grants;
+        _subjects = subjects;
         _sessionService = sessionService;
-        _parStore = parStore;
         _requestObjectValidator = requestObjectValidator;
         _events = events;
     }
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
     {
-        var q = context.Request.Query;
+        var opts = _options.Value;
 
-        var clientId = q["client_id"].ToString();
+        // OIDC Core §3.1.2.1: parameters arrive as query (GET) or form body (POST).
+        var raw = await ReadRawParametersAsync(context, ct);
 
-        // client_id must be validated before any error redirect
+        var clientId = GetParam(raw, "client_id");
         if (string.IsNullOrEmpty(clientId))
             return ShowErrorPage("client_id is required");
 
@@ -84,19 +95,17 @@ public sealed class AuthorizationEndpointHandler
             return ShowErrorPage("unknown client_id");
 
         // ── PAR / JAR — resolve effective parameters ──────────────────────────
-
-        var opts = _options.Value;
-        var (effectiveParams, paramError) = await ResolveParametersAsync(q, client, opts, ct);
-        if (paramError is not null)
+        var resolved = await ResolveParametersAsync(raw, client, opts, ct);
+        var effectiveParams = resolved.Params;
+        if (resolved.Error is not null)
         {
             var knownRedirect = GetParam(effectiveParams, "redirect_uri");
             var knownState = GetParam(effectiveParams, "state");
             if (!string.IsNullOrEmpty(knownRedirect) && IsValidRedirectUri(client, knownRedirect))
-                return SendError(knownRedirect, knownState, null, OAuthError.InvalidRequestObject(paramError));
-            return ShowErrorPage(paramError);
+                return SendError(knownRedirect, knownState, null, resolved.Error);
+            return ShowErrorPage(resolved.Error.Description ?? resolved.Error.Error);
         }
 
-        // Re-read redirect_uri from effective params (may come from PAR/JAR)
         var redirectUri = GetParam(effectiveParams, "redirect_uri");
         var redirectUriInRequest = !string.IsNullOrEmpty(redirectUri);
         if (string.IsNullOrEmpty(redirectUri))
@@ -110,7 +119,6 @@ public sealed class AuthorizationEndpointHandler
         if (!IsValidRedirectUri(client, redirectUri))
             return ShowErrorPage("redirect_uri not registered for this client");
 
-        // Parse remaining parameters from effective params
         var rawResponseType = GetParam(effectiveParams, "response_type");
         var scope = GetParam(effectiveParams, "scope");
         var state = GetParam(effectiveParams, "state");
@@ -119,319 +127,456 @@ public sealed class AuthorizationEndpointHandler
         var codeChallenge = GetParam(effectiveParams, "code_challenge");
         var codeChallengeMethod = GetParam(effectiveParams, "code_challenge_method");
         var claimsParam = GetParam(effectiveParams, "claims");
-        var resourceParam = GetParam(effectiveParams, "resource");
-        var authDetailsParam = GetParam(effectiveParams, "authorization_details");
 
-        // Normalize response_type (sort tokens so comparisons are order-independent)
+        // ── Response type (RFC 7591 response_types / grant_types) ─────────────
         var normalizedResponseType = NormalizeResponseType(rawResponseType);
-
-        var isCode = CodeResponseTypes.Contains(normalizedResponseType);
-        var isImplicit = ImplicitResponseTypes.Contains(normalizedResponseType);
-        var isHybrid = HybridResponseTypes.Contains(normalizedResponseType);
-
-        if (!isCode && !isImplicit && !isHybrid)
+        if (!KnownResponseTypes.Contains(normalizedResponseType))
             return SendError(redirectUri, state, null,
                 OAuthError.UnsupportedResponseType($"Unsupported response_type: {rawResponseType}"));
 
-        var requiredGrant = isCode ? "authorization_code" : isHybrid ? "hybrid" : "implicit";
-        if (!client.AllowedGrantTypes.Contains(requiredGrant))
-            return SendError(redirectUri, state, null, OAuthError.UnauthorizedClient());
+        var responseTokens = normalizedResponseType.Split(' ');
+        var includesCode = responseTokens.Contains("code");
+        var includesIdToken = responseTokens.Contains("id_token");
+        var includesToken = responseTokens.Contains("token");
+        var isCode = normalizedResponseType == "code";
+
+        if (!client.ResponseTypes.Any(rt => NormalizeResponseType(rt) == normalizedResponseType) ||
+            (includesCode && !client.AllowedGrantTypes.Contains("authorization_code")) ||
+            ((includesIdToken || includesToken) && !isCode && !client.AllowedGrantTypes.Contains("implicit")))
+            return SendError(redirectUri, state, null,
+                OAuthError.UnauthorizedClient($"client may not use response_type '{rawResponseType}'"));
 
         // ── Response mode (plain + JARM) ──────────────────────────────────────
-
-        var (baseMode, useJarm) = ParseResponseMode(responseMode, isCode, isImplicit, isHybrid, opts);
+        var (baseMode, useJarm) = ParseResponseMode(responseMode, isCode, opts);
         if (baseMode is null)
             return SendError(redirectUri, state, null,
                 OAuthError.InvalidRequest($"Unsupported response_mode: {responseMode}"));
 
-        // query mode must not be used when tokens are returned directly (security)
-        if (baseMode == "query" && (isImplicit || isHybrid))
+        // Tokens must never travel in the query string.
+        if (baseMode == "query" && !isCode && !useJarm)
             return SendError(redirectUri, state, baseMode,
-                OAuthError.InvalidRequest("response_mode=query is not permitted for implicit/hybrid flows"));
+                OAuthError.InvalidRequest("response_mode=query is not permitted when tokens are returned"));
 
-        // Parse and validate scopes
-        var requestedScopes = string.IsNullOrEmpty(scope)
-            ? new List<string>()
-            : scope.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        // Every error from here on is returned the way the client asked for responses.
+        IResult Fail(OAuthError error) => SendError(redirectUri, state, baseMode, error);
+
+        // ── Scopes ────────────────────────────────────────────────────────────
+        var requestedScopes = scope.Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct().ToList();
 
         var registeredScopes = opts.Scopes.Select(s => s.Name).ToHashSet();
         var unknownScopes = requestedScopes.Where(s => !registeredScopes.Contains(s)).ToList();
         if (unknownScopes.Count > 0)
-            return SendError(redirectUri, state, baseMode,
-                OAuthError.InvalidScope($"Unknown scope(s): {string.Join(" ", unknownScopes)}"));
+            return Fail(OAuthError.InvalidScope($"Unknown scope(s): {string.Join(" ", unknownScopes)}"));
 
         var disallowedScopes = requestedScopes.Where(s => !client.AllowedScopes.Contains(s)).ToList();
         if (disallowedScopes.Count > 0)
-            return SendError(redirectUri, state, baseMode,
-                OAuthError.InvalidScope($"Client not authorized for: {string.Join(" ", disallowedScopes)}"));
+            return Fail(OAuthError.InvalidScope($"Client not authorized for: {string.Join(" ", disallowedScopes)}"));
 
-        // nonce is required when an id_token is issued directly (OIDC Core §3.2.2.1, §3.3.2.11)
-        var includesIdToken = normalizedResponseType.Contains("id_token");
-        if (includesIdToken && !isCode && string.IsNullOrEmpty(nonce))
-            return SendError(redirectUri, state, baseMode,
-                OAuthError.InvalidRequest("nonce is required when response_type includes id_token"));
+        var isOpenId = requestedScopes.Contains("openid");
+        if (includesIdToken && !isOpenId)
+            return Fail(OAuthError.InvalidScope("response_type id_token requires the openid scope"));
 
-        // PKCE validation applies to all flows that return a code
-        var includesCode = normalizedResponseType.Contains("code");
+        // OIDC Core §3.2.2.1 / §3.3.2.11: nonce is required when an id_token is returned directly.
+        if (includesIdToken && string.IsNullOrEmpty(nonce))
+            return Fail(OAuthError.InvalidRequest("nonce is required when response_type includes id_token"));
+
+        // ── PKCE (RFC 7636, RFC 9700 §2.1.1) ──────────────────────────────────
         if (includesCode)
         {
-            if (client.RequirePkce && string.IsNullOrEmpty(codeChallenge))
-                return SendError(redirectUri, state, baseMode,
-                    OAuthError.InvalidRequest("code_challenge is required (PKCE)"));
+            var pkceRequired = client.RequirePkce || client.TokenEndpointAuthMethod == "none";
+            if (pkceRequired && string.IsNullOrEmpty(codeChallenge))
+                return Fail(OAuthError.InvalidRequest("code_challenge is required (PKCE)"));
 
             if (!string.IsNullOrEmpty(codeChallenge))
             {
                 if (string.IsNullOrEmpty(codeChallengeMethod))
+                {
+                    if (!opts.AllowPlainPkce)
+                        return Fail(OAuthError.InvalidRequest("code_challenge_method is required; use S256"));
                     codeChallengeMethod = "plain";
-                if (!codeChallengeMethod.Equals("S256", StringComparison.OrdinalIgnoreCase) &&
-                    !codeChallengeMethod.Equals("plain", StringComparison.OrdinalIgnoreCase))
-                    return SendError(redirectUri, state, baseMode,
-                        OAuthError.InvalidRequest("Unsupported code_challenge_method; use S256 or plain"));
+                }
+
+                if (codeChallengeMethod == "plain" ? !opts.AllowPlainPkce : codeChallengeMethod != "S256")
+                    return Fail(OAuthError.InvalidRequest("Unsupported code_challenge_method; use S256"));
+
+                if (!PkceValidator.IsWellFormed(codeChallenge))
+                    return Fail(OAuthError.InvalidRequest("code_challenge must be 43-128 unreserved characters"));
             }
         }
 
-        // ── FAPI Profile runtime enforcement (Phase 7) ────────────────────────
-
+        // ── FAPI profile runtime enforcement ──────────────────────────────────
         if (opts.FapiProfile == FapiProfile.Fapi1Advanced)
         {
-            // Only response_type=code or code+id_token are permitted (FAPI 1.0 §5.2.2).
+            // FAPI 1.0 Advanced §5.2.2: code or code id_token; JARM for code; nonce for OpenID;
+            // a signed request object (directly or pushed).
             if (!isCode && normalizedResponseType != "code id_token")
-                return SendError(redirectUri, state, baseMode,
-                    OAuthError.InvalidRequest("FAPI 1.0: response_type must be 'code' or 'code id_token'"));
-
-            // JARM (response_mode=jwt) is required when response_type is code-only.
+                return Fail(OAuthError.InvalidRequest("FAPI 1.0: response_type must be 'code' or 'code id_token'"));
             if (isCode && !useJarm)
-                return SendError(redirectUri, state, baseMode,
-                    OAuthError.InvalidRequest("FAPI 1.0: response_mode=jwt is required when response_type is 'code'"));
-
-            // nonce is required for every OpenID (§5.2.3.2) request.
-            if (requestedScopes.Contains("openid") && string.IsNullOrEmpty(nonce))
-                return SendError(redirectUri, state, baseMode,
-                    OAuthError.InvalidRequest("FAPI 1.0: nonce is required for OpenID requests"));
+                return Fail(OAuthError.InvalidRequest("FAPI 1.0: response_mode=jwt is required when response_type is 'code'"));
+            if (isOpenId && string.IsNullOrEmpty(nonce))
+                return Fail(OAuthError.InvalidRequest("FAPI 1.0: nonce is required for OpenID requests"));
+            if (!resolved.FromRequestObject && !resolved.FromPar)
+                return Fail(OAuthError.InvalidRequest("FAPI 1.0: a request object or pushed authorization request is required"));
         }
 
-        var isFapi2Profile = opts.FapiProfile is FapiProfile.Fapi2Security
-            or FapiProfile.Fapi2MessageSigning
-            or FapiProfile.FapiCiba;
-
-        if (isFapi2Profile)
+        if (opts.FapiProfile is FapiProfile.Fapi2Security or FapiProfile.Fapi2MessageSigning or FapiProfile.FapiCiba)
         {
-            // Only response_type=code is permitted (FAPI 2.0 §5.3.1).
+            // FAPI 2.0 §5.3.1: code only, PKCE S256, pushed authorization requests.
             if (!isCode)
-                return SendError(redirectUri, state, baseMode,
-                    OAuthError.InvalidRequest("FAPI 2.0: response_type must be 'code'"));
+                return Fail(OAuthError.InvalidRequest("FAPI 2.0: response_type must be 'code'"));
+            if (string.IsNullOrEmpty(codeChallenge) || codeChallengeMethod != "S256")
+                return Fail(OAuthError.InvalidRequest("FAPI 2.0: code_challenge with S256 is required"));
+            if (!resolved.FromPar)
+                return Fail(OAuthError.InvalidRequest("FAPI 2.0: pushed authorization requests are required"));
 
-            // PKCE with S256 is mandatory (FAPI 2.0 §5.3.1).
-            if (string.IsNullOrEmpty(codeChallenge))
-                return SendError(redirectUri, state, baseMode,
-                    OAuthError.InvalidRequest("FAPI 2.0: code_challenge is required (PKCE S256)"));
-
-            if (!string.IsNullOrEmpty(codeChallengeMethod) &&
-                !codeChallengeMethod.Equals("S256", StringComparison.OrdinalIgnoreCase))
-                return SendError(redirectUri, state, baseMode,
-                    OAuthError.InvalidRequest("FAPI 2.0: only code_challenge_method=S256 is allowed"));
+            // FAPI 2.0 Message Signing: signed requests and signed responses.
+            if (opts.FapiProfile == FapiProfile.Fapi2MessageSigning)
+            {
+                if (!resolved.FromRequestObject)
+                    return Fail(OAuthError.InvalidRequest("FAPI 2.0 Message Signing: a signed request object is required"));
+                if (!useJarm)
+                    return Fail(OAuthError.InvalidRequest("FAPI 2.0 Message Signing: response_mode=jwt is required"));
+            }
         }
+
+        // ── OIDC request parameters (§3.1.2.1) ────────────────────────────────
+        var prompt = GetParam(effectiveParams, "prompt")
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+        if (prompt.Any(p => !KnownPrompts.Contains(p)))
+            return Fail(OAuthError.InvalidRequest("unsupported prompt value"));
+        if (prompt.Contains("none") && prompt.Count > 1)
+            return Fail(OAuthError.InvalidRequest("prompt=none cannot be combined with other values"));
+
+        int? maxAge = null;
+        var maxAgeParam = GetParam(effectiveParams, "max_age");
+        if (!string.IsNullOrEmpty(maxAgeParam))
+        {
+            if (!int.TryParse(maxAgeParam, out var parsedMaxAge) || parsedMaxAge < 0)
+                return Fail(OAuthError.InvalidRequest("max_age must be a non-negative integer"));
+            maxAge = parsedMaxAge;
+        }
+
+        string? hintSubject = null;
+        var idTokenHint = GetParam(effectiveParams, "id_token_hint");
+        if (!string.IsNullOrEmpty(idTokenHint))
+        {
+            var hint = await _tokenFactory.ValidateIdTokenHintAsync(idTokenHint, ct);
+            hintSubject = hint?.FindFirst("sub")?.Value;
+            if (hintSubject is null)
+                return Fail(OAuthError.InvalidRequest("id_token_hint is invalid"));
+        }
+
+        if (!ClaimsEngine.TryParse(claimsParam, out var claimsRequest, out var claimsError))
+            return Fail(OAuthError.InvalidRequest(claimsError));
 
         // ── Resource Indicators (RFC 8707) ────────────────────────────────────
-
-        var resources = ParseResourceIndicators(resourceParam, opts);
-
-        // ── Rich Authorization Requests (RFC 9396) ────────────────────────────
-
-        var (authDetailsJson, authDetailsError) = ParseAuthorizationDetails(authDetailsParam, opts);
-        if (authDetailsError is not null)
-            return SendError(redirectUri, state, baseMode,
-                OAuthError.InvalidAuthorizationDetails(authDetailsError));
-
-        // Check interaction (login + consent)
-        var interaction = await _interactionService.GetInteractionResultAsync(
-            context, clientId, requestedScopes, ct);
-
-        if (interaction is null)
+        IReadOnlyList<string> resources = [];
+        if (opts.ResourceIndicatorsEnabled)
         {
-            var returnUrl = Uri.EscapeDataString(
-                context.Request.Path + context.Request.QueryString);
-            return Results.Redirect($"{_options.Value.LoginPath}?returnUrl={returnUrl}");
+            resources = ResourceIndicators.Split(GetParam(effectiveParams, "resource"));
+            if (ResourceIndicators.Validate(resources, opts, client) is { } targetError)
+                return Fail(OAuthError.InvalidTarget(targetError));
         }
 
-        // Compute effective subject (public or pairwise per OIDC Core §8)
-        var effectiveSub = _subjectIdentifier.Compute(interaction.Subject, client);
-        var grantedScopes = interaction.GrantedScopes;
-        var authTime = DateTimeOffset.UtcNow;
+        // ── Rich Authorization Requests (RFC 9396) ────────────────────────────
+        var (authDetailsJson, authDetailsError) = ParseAuthorizationDetails(
+            GetParam(effectiveParams, "authorization_details"), opts);
+        if (authDetailsError is not null)
+            return Fail(OAuthError.InvalidAuthorizationDetails(authDetailsError));
+
+        // ── Interaction (login + consent) ─────────────────────────────────────
+        PendingInteraction? resumed = null;
+        var interactionId = GetParam(raw, InteractionParameter);
+        if (!string.IsNullOrEmpty(interactionId) &&
+            await _interactions.FindAsync(interactionId, ct) is { } pending && pending.ClientId == client.ClientId)
+            resumed = pending;
+
+        var outcome = await _interactionService.EvaluateAsync(new InteractionRequest
+        {
+            HttpContext = context,
+            Client = client,
+            RequestedScopes = requestedScopes,
+            Prompt = prompt,
+            MaxAge = maxAge,
+            IdTokenHintSubject = hintSubject,
+            LoginHint = NullIfEmpty(GetParam(effectiveParams, "login_hint")),
+            AcrValues = GetParam(effectiveParams, "acr_values").Split(' ', StringSplitOptions.RemoveEmptyEntries),
+            UiLocales = NullIfEmpty(GetParam(effectiveParams, "ui_locales")),
+            ResumedInteraction = resumed,
+        }, ct);
+
+        // id_token_hint names a different End-User than the one signed in (OIDC Core §3.1.2.1).
+        if (outcome.Kind == InteractionOutcomeKind.Completed && hintSubject is not null &&
+            _subjects.Compute(outcome.Subject!, client) != hintSubject)
+            outcome = InteractionOutcome.Requires(InteractionOutcomeKind.LoginRequired);
+
+        if (outcome.Kind != InteractionOutcomeKind.Completed)
+        {
+            if (prompt.Contains("none"))
+            {
+                await ConsumeParAsync(resolved, ct);
+                return Fail(outcome.Kind switch
+                {
+                    InteractionOutcomeKind.LoginRequired => OAuthError.LoginRequired(),
+                    InteractionOutcomeKind.ConsentRequired => OAuthError.ConsentRequired(),
+                    InteractionOutcomeKind.AccountSelectionRequired => OAuthError.AccountSelectionRequired(),
+                    _ => OAuthError.InteractionRequired(),
+                });
+            }
+            return await SuspendForInteractionAsync(context, raw, client, requestedScopes, effectiveParams, outcome.Kind, ct);
+        }
+
+        // OIDC Core §5.5.1.1: an essential acr that was not achieved fails the request.
+        if (claimsRequest?.IdToken.TryGetValue("acr", out var acrRequest) == true &&
+            acrRequest.Essential && acrRequest.Values is { Length: > 0 } &&
+            (outcome.Acr is null || !acrRequest.Values.Contains(outcome.Acr)))
+            return Fail(OAuthError.AccessDenied("the requested authentication context was not achieved"));
+
+        // The request is complete: spend the pushed request and the interaction.
+        if (!await ConsumeParAsync(resolved, ct))
+            return Fail(OAuthError.InvalidRequestUri("request_uri was already used"));
+        if (resumed is not null)
+            await _interactions.RemoveAsync(resumed.InteractionId, ct);
+
+        var localSubject = outcome.Subject!;
+        var grantedScopes = outcome.GrantedScopes;
+        var authTime = outcome.AuthTime;
 
         // Create or update the OIDC session (no-op when LogoutEnabled is false).
-        var session = await _sessionService.EnsureSessionAsync(context, effectiveSub, clientId, ct);
+        var session = await _sessionService.EnsureSessionAsync(context, localSubject, clientId, ct);
         var sid = session?.SessionId;
 
         var response = new Dictionary<string, string?>();
         if (!string.IsNullOrEmpty(state)) response["state"] = state;
 
         // RFC 9207: add iss to every authorization response
-        if (_options.Value.IssuerIdentificationEnabled)
-            response["iss"] = _options.Value.Issuer.TrimEnd('/');
+        if (opts.IssuerIdentificationEnabled)
+            response["iss"] = opts.Issuer.TrimEnd('/');
 
-        // Issue code for code/hybrid flows
+        // ── Code: one grant per authorization, shared by every token it yields ─
+        string? codeValue = null;
+        string? grantId = null;
         if (includesCode)
         {
-            var codeValue = GenerateId();
-            var authCode = new AuthorizationCode
+            var codeLifetime = TimeSpan.FromSeconds(opts.AuthorizationCodeLifetimeSeconds);
+            grantId = await _grants.CreateAsync(clientId, localSubject, grantedScopes, codeLifetime, ct);
+            codeValue = GenerateId();
+            await _codeStore.StoreAsync(codeValue, new AuthorizationCode
             {
                 Code = codeValue,
                 ClientId = clientId,
                 RedirectUri = redirectUri,
                 RedirectUriInRequest = redirectUriInRequest,
-                Subject = effectiveSub,
+                Subject = localSubject,
                 Scopes = grantedScopes,
-                Nonce = string.IsNullOrEmpty(nonce) ? null : nonce,
-                CodeChallenge = string.IsNullOrEmpty(codeChallenge) ? null : codeChallenge,
-                CodeChallengeMethod = string.IsNullOrEmpty(codeChallengeMethod) ? null : codeChallengeMethod,
+                Nonce = NullIfEmpty(nonce),
+                CodeChallenge = NullIfEmpty(codeChallenge),
+                CodeChallengeMethod = string.IsNullOrEmpty(codeChallenge) ? null : codeChallengeMethod,
                 AuthTime = authTime,
-                ExpiresAt = authTime.Add(TimeSpan.FromSeconds(opts.AuthorizationCodeLifetimeSeconds)),
-                ClaimsRequest = string.IsNullOrEmpty(claimsParam) ? null : claimsParam,
-                Acr = interaction.Acr,
-                Amr = interaction.Amr,
+                ExpiresAt = DateTimeOffset.UtcNow + codeLifetime,
+                ClaimsRequest = NullIfEmpty(claimsParam),
+                Acr = outcome.Acr,
+                Amr = outcome.Amr,
                 SessionId = sid,
                 Resources = resources,
                 AuthorizationDetailsJson = authDetailsJson,
-            };
-            await _codeStore.StoreAsync(codeValue, authCode,
-                TimeSpan.FromSeconds(opts.AuthorizationCodeLifetimeSeconds), ct);
+                GrantId = grantId,
+            }, codeLifetime, ct);
             response["code"] = codeValue;
         }
 
-        // Issue access token for flows where 'token' is a response_type token (implicit/hybrid)
-        var includesToken = normalizedResponseType.Contains("token") && !isCode;
+        // ── Access token directly (implicit / hybrid with 'token') ────────────
+        string? accessToken = null;
         if (includesToken)
         {
-            var tokenId = GenerateId();
-            var atValue = _tokenFactory.CreateAccessToken(tokenId, effectiveSub, clientId, grantedScopes);
-            var at = new AccessToken
+            var issued = await _issuer.IssueAsync(new TokenIssuanceRequest
             {
-                TokenId = tokenId,
-                GrantId = tokenId,
-                ClientId = clientId,
-                Subject = effectiveSub,
+                Client = client,
+                GrantType = "implicit",
+                Subject = localSubject,
                 Scopes = grantedScopes,
-                ExpiresAt = authTime.AddSeconds(opts.AccessTokenLifetimeSeconds),
-                Resource = resources.Count > 0 ? resources[0] : null,
+                Resources = resources,
                 AuthorizationDetailsJson = authDetailsJson,
-            };
-            await _accessTokenStore.StoreAsync(tokenId, at,
-                TimeSpan.FromSeconds(opts.AccessTokenLifetimeSeconds), ct);
-            response["access_token"] = atValue;
-            response["token_type"] = "Bearer";
-            response["expires_in"] = opts.AccessTokenLifetimeSeconds.ToString();
+                GrantId = grantId,
+                ClaimsRequest = NullIfEmpty(claimsParam),
+            }, ct);
+            accessToken = issued.AccessToken;
+            response["access_token"] = issued.AccessToken;
+            response["token_type"] = issued.TokenType;
+            response["expires_in"] = issued.ExpiresIn.ToString();
         }
 
-        // Issue id_token directly for implicit/hybrid flows (not for pure code flow)
-        if (includesIdToken && !isCode)
+        // ── ID token directly (implicit / hybrid), with at_hash and c_hash ────
+        if (includesIdToken)
         {
-            var idToken = _tokenFactory.CreateIdToken(
-                effectiveSub, clientId,
-                nonce: string.IsNullOrEmpty(nonce) ? null : nonce,
-                authTime: authTime,
-                acr: interaction.Acr,
-                amr: interaction.Amr,
-                sid: sid,
-                client: client);
-            response["id_token"] = idToken;
+            response["id_token"] = await _issuer.CreateIdTokenAsync(client, localSubject, grantedScopes,
+                new IdTokenParameters(authTime, NullIfEmpty(nonce), outcome.Acr, outcome.Amr, sid,
+                    NullIfEmpty(claimsParam), Code: codeValue,
+                    // OIDC Core §5.4: without an access token the scope claims go in the ID token.
+                    IncludeScopeClaims: !includesToken && !includesCode),
+                accessToken, ct);
         }
 
         await _events.AuthorizationSucceededAsync(new AuthorizationSucceededEvent(
-            clientId, effectiveSub, rawResponseType ?? string.Empty,
-            grantedScopes, authTime), ct);
+            clientId, localSubject, rawResponseType, grantedScopes, authTime), ct);
 
         return BuildRedirect(redirectUri, baseMode, response, useJarm ? clientId : null);
     }
 
-    // ── Parameter resolution (PAR / JAR) ──────────────────────────────────────
+    // ── Parameter sources ─────────────────────────────────────────────────────
 
-    private async Task<(IReadOnlyDictionary<string, string> Params, string? Error)>
-        ResolveParametersAsync(
-            IQueryCollection query,
-            Client client,
-            ProviderOptions opts,
-            CancellationToken ct)
+    /// <summary>
+    /// Reads query (GET) or form (POST) parameters. Repeated <c>resource</c> values are joined
+    /// with spaces; other repeated parameters are an error per RFC 6749 §3.1 and keep the first.
+    /// </summary>
+    private static async Task<Dictionary<string, string>> ReadRawParametersAsync(HttpContext context, CancellationToken ct)
     {
-        var baseline = query.Keys
-            .ToDictionary(k => k, k => query[k].ToString(), StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (HttpMethods.IsPost(context.Request.Method) && context.Request.HasFormContentType)
+        {
+            var form = await context.Request.ReadFormAsync(ct);
+            foreach (var key in form.Keys)
+                result[key] = key == "resource" ? string.Join(' ', form[key].ToArray()) : form[key].ToString();
+        }
+        else
+        {
+            foreach (var key in context.Request.Query.Keys)
+            {
+                var values = context.Request.Query[key];
+                result[key] = key == "resource" ? string.Join(' ', values.ToArray()) : values[0] ?? string.Empty;
+            }
+        }
+        return result;
+    }
 
-        var requestUri = GetParam(baseline, "request_uri");
-        var requestJwt = GetParam(baseline, "request");
+    private sealed record ResolvedParameters(
+        IReadOnlyDictionary<string, string> Params,
+        OAuthError? Error,
+        bool FromPar = false,
+        bool FromRequestObject = false,
+        string? ParRequestUri = null);
+
+    private async Task<ResolvedParameters> ResolveParametersAsync(
+        IReadOnlyDictionary<string, string> raw, Client client, ProviderOptions opts, CancellationToken ct)
+    {
+        var requestUri = GetParam(raw, "request_uri");
+        var requestJwt = GetParam(raw, "request");
+        var requireRequestObject = client.RequireSignedRequestObject || opts.JarRequireSignedRequestObject;
 
         // ── PAR: request_uri ───────────────────────────────────────────────────
-
         if (!string.IsNullOrEmpty(requestUri))
         {
+            // RFC 9101 request_uri by reference is not fetched; only pushed requests are accepted.
             if (!requestUri.StartsWith("urn:ietf:params:oauth:request_uri:", StringComparison.Ordinal))
-                return (baseline, "request_uri must use the urn:ietf:params:oauth:request_uri: scheme");
+                return new(raw, OAuthError.RequestUriNotSupported(
+                    "only request_uri values from the pushed authorization endpoint are supported"));
 
-            var par = await _parStore.ConsumeAsync(requestUri, ct);
-            if (par is null)
-                return (baseline, "request_uri not found, expired, or already used");
-
+            // Peek only: the request is spent when the authorization completes, so a login
+            // redirect in between can resume it.
+            var par = await _parStore.FindAsync(requestUri, ct);
+            if (par is null || par.ExpiresAt < DateTimeOffset.UtcNow)
+                return new(raw, OAuthError.InvalidRequestUri("request_uri not found, expired, or already used"));
             if (par.ClientId != client.ClientId)
-                return (baseline, "request_uri belongs to a different client");
-
-            if (par.ExpiresAt < DateTimeOffset.UtcNow)
-                return (baseline, "request_uri has expired");
+                return new(raw, OAuthError.InvalidRequestUri("request_uri belongs to a different client"));
+            if (requireRequestObject && !par.FromRequestObject)
+                return new(raw, OAuthError.InvalidRequest("a signed request object is required"));
 
             var stored = JsonSerializer.Deserialize<Dictionary<string, string>>(par.ParametersJson);
             if (stored is null)
-                return (baseline, "could not deserialize pushed authorization request");
+                return new(raw, OAuthError.InvalidRequestUri("could not deserialize pushed authorization request"));
 
-            return (stored, null);
+            return new(stored, null, FromPar: true, FromRequestObject: par.FromRequestObject, ParRequestUri: requestUri);
         }
 
         if (opts.RequirePushedAuthorization)
-            return (baseline, "request_uri is required (pushed authorization is mandatory)");
+            return new(raw, OAuthError.InvalidRequest("request_uri is required (pushed authorization is mandatory)"));
 
         // ── JAR: request JWT ───────────────────────────────────────────────────
-
         if (!string.IsNullOrEmpty(requestJwt))
         {
             if (!opts.JarEnabled)
-                return (baseline, "request parameter is not supported (JAR is disabled)");
+                return new(raw, OAuthError.RequestNotSupported("request parameter is not supported (JAR is disabled)"));
 
             var (claims, error) = await _requestObjectValidator.ValidateAsync(
                 requestJwt, client, opts.Issuer.TrimEnd('/'), ct);
-
             if (error is not null)
-                return (baseline, error);
+                return new(raw, OAuthError.InvalidRequestObject(error));
 
-            var effective = new Dictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
-            foreach (var kv in RequestObjectValidator.ToAuthorizationParameters(claims!))
-                effective[kv.Key] = kv.Value;
+            // RFC 9101 §6.3: only the request object's parameters are used.
+            var effective = RequestObjectValidator.ToAuthorizationParameters(claims!);
+            if (effective.TryGetValue("client_id", out var jwtClientId) && jwtClientId != client.ClientId)
+                return new(raw, OAuthError.InvalidRequestObject("client_id in request object does not match query client_id"));
+            effective["client_id"] = client.ClientId;
 
-            var jwtClientId = GetParam(effective, "client_id");
-            if (!string.IsNullOrEmpty(jwtClientId) && jwtClientId != client.ClientId)
-                return (baseline, "client_id in request object does not match query client_id");
-
-            return (effective, null);
+            return new(effective, null, FromRequestObject: true);
         }
 
-        if (client.RequireSignedRequestObject)
-            return (baseline, "this client requires a signed request object");
+        if (requireRequestObject)
+            return new(raw, OAuthError.InvalidRequest("a signed request object is required"));
 
-        return (baseline, null);
+        return new(raw, null);
+    }
+
+    /// <summary>Spends the pushed request, if any. Returns false when it was already used.</summary>
+    private async Task<bool> ConsumeParAsync(ResolvedParameters resolved, CancellationToken ct) =>
+        resolved.ParRequestUri is null || await _parStore.ConsumeAsync(resolved.ParRequestUri, ct) is not null;
+
+    // ── Interaction redirects ─────────────────────────────────────────────────
+
+    private async Task<IResult> SuspendForInteractionAsync(
+        HttpContext context, IReadOnlyDictionary<string, string> raw, Client client,
+        IReadOnlyList<string> scopes, IReadOnlyDictionary<string, string> effective,
+        InteractionOutcomeKind kind, CancellationToken ct)
+    {
+        var opts = _options.Value;
+        var kindToRecord = kind == InteractionOutcomeKind.ConsentRequired ? InteractionKind.Consent : InteractionKind.Login;
+        var interactionId = GenerateId();
+        await _interactions.StoreAsync(interactionId, new PendingInteraction
+        {
+            InteractionId = interactionId,
+            ClientId = client.ClientId,
+            Kind = kindToRecord,
+        }, TimeSpan.FromSeconds(opts.InteractionLifetimeSeconds), ct);
+
+        // Resume via GET with the original (outer) parameters plus the interaction id.
+        var resumeParams = raw.Where(kv => kv.Key != InteractionParameter)
+            .ToDictionary(kv => kv.Key, kv => (string?)kv.Value);
+        resumeParams[InteractionParameter] = interactionId;
+        var returnUrl = QueryHelpers.AddQueryString(context.Request.PathBase + context.Request.Path, resumeParams);
+
+        if (kindToRecord == InteractionKind.Consent)
+        {
+            return Results.Redirect(QueryHelpers.AddQueryString(opts.ConsentPath, new Dictionary<string, string?>
+            {
+                ["returnUrl"] = returnUrl,
+                ["client_id"] = client.ClientId,
+                ["scope"] = string.Join(' ', scopes),
+            }));
+        }
+
+        var loginParams = new Dictionary<string, string?> { ["returnUrl"] = returnUrl };
+        foreach (var hint in new[] { "login_hint", "ui_locales", "acr_values" })
+            if (!string.IsNullOrEmpty(GetParam(effective, hint)))
+                loginParams[hint] = GetParam(effective, hint);
+        return Results.Redirect(QueryHelpers.AddQueryString(opts.LoginPath, loginParams));
     }
 
     // ── Response mode helpers (JARM) ───────────────────────────────────────────
 
     private static (string? BaseMode, bool UseJarm) ParseResponseMode(
-        string responseMode, bool isCode, bool isImplicit, bool isHybrid, ProviderOptions opts)
+        string responseMode, bool isCode, ProviderOptions opts)
     {
         if (string.IsNullOrEmpty(responseMode))
             responseMode = isCode ? "query" : "fragment";
 
-        if (responseMode.EndsWith(".jwt", StringComparison.OrdinalIgnoreCase))
+        if (responseMode == "jwt" || responseMode.EndsWith(".jwt", StringComparison.Ordinal))
         {
             if (!opts.JarmEnabled) return (null, false);
 
-            var prefix = responseMode[..^4];
+            var prefix = responseMode == "jwt" ? "" : responseMode[..^4];
             var baseMode = prefix switch
             {
-                "" or "jwt" => isCode ? "query" : "fragment",
+                "" => isCode ? "query" : "fragment",
                 "query" => "query",
                 "fragment" => "fragment",
                 "form_post" => "form_post",
@@ -443,16 +588,6 @@ public sealed class AuthorizationEndpointHandler
         return responseMode is "query" or "fragment" or "form_post"
             ? (responseMode, false)
             : (null, false);
-    }
-
-    // ── Resource Indicators (RFC 8707) ─────────────────────────────────────────
-
-    private static IReadOnlyList<string> ParseResourceIndicators(
-        string resourceParam, ProviderOptions opts)
-    {
-        if (!opts.ResourceIndicatorsEnabled || string.IsNullOrEmpty(resourceParam))
-            return [];
-        return resourceParam.Split(' ', StringSplitOptions.RemoveEmptyEntries);
     }
 
     // ── Rich Authorization Requests (RFC 9396) ─────────────────────────────────
@@ -482,14 +617,14 @@ public sealed class AuthorizationEndpointHandler
     private static string GetParam(IReadOnlyDictionary<string, string> d, string key) =>
         d.TryGetValue(key, out var v) ? v : string.Empty;
 
+    private static string? NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
+
     /// <summary>
     /// Sorts the space-separated response_type tokens alphabetically so that
     /// "token id_token" and "id_token token" compare equal.
     /// </summary>
-    private static string NormalizeResponseType(string raw) =>
+    internal static string NormalizeResponseType(string raw) =>
         string.Join(" ", raw.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                             .Select(t => t.Trim())
-                             .Where(t => t.Length > 0)
                              .OrderBy(t => t, StringComparer.Ordinal));
 
     /// <summary>
@@ -531,7 +666,6 @@ public sealed class AuthorizationEndpointHandler
         var p = new Dictionary<string, string?> { ["error"] = error.Error };
         if (error.Description is not null) p["error_description"] = error.Description;
         if (!string.IsNullOrEmpty(state)) p["state"] = state;
-        // BuildRedirect is non-static (uses _tokenFactory for JARM); errors never use JARM.
         var nonNull = p.Where(kv => kv.Value is not null)
             .ToDictionary(kv => kv.Key, kv => kv.Value!);
         return responseMode switch
@@ -596,4 +730,3 @@ public sealed class AuthorizationEndpointHandler
     private static string GenerateId() =>
         Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
 }
-

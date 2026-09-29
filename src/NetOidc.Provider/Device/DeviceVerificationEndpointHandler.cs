@@ -124,6 +124,7 @@ public sealed class DeviceVerificationEndpointHandler
         {
             deviceCode.Subject = subject;
             deviceCode.GrantedScopes = deviceCode.RequestedScopes;
+            deviceCode.AuthTime = DateTimeOffset.UtcNow;
             deviceCode.Status = DeviceCodeStatus.Approved;
         }
 
