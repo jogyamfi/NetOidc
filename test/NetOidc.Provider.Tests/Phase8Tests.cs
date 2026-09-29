@@ -368,12 +368,11 @@ public sealed class Phase8Tests
     }
 
     [Fact]
-    public async Task Cors_Discovery_ReturnsWildcard_WhenEnabledWithNoOrigins()
+    public async Task Cors_Policy_DerivesOriginsFromRedirectUris_AndNeverUsesWildcard()
     {
         await using var app = TestWebApp.Create(opts =>
         {
             opts.CorsEnabled = true;
-            // CorsAllowedOrigins is empty → allow all
         });
 
         var policy = app.Services
@@ -382,7 +381,8 @@ public sealed class Phase8Tests
             .Value.GetPolicy("NetOidcCors");
 
         Assert.NotNull(policy);
-        Assert.True(policy.AllowAnyOrigin);
+        Assert.False(policy.AllowAnyOrigin);
+        Assert.Equal(["https://client.test.example.com"], policy.Origins);
     }
 
     [Fact]

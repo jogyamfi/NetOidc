@@ -1,35 +1,37 @@
 using System.Security.Claims;
-using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.JsonWebTokens;
 using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.DPoP;
-using NetOidc.Provider.Jose;
+using NetOidc.Provider.Token;
 
 namespace NetOidc.Provider.UserInfo;
 
 /// <summary>
-/// Handles GET/POST requests to the UserInfo endpoint.
-/// Validates Bearer or DPoP-bound access tokens and returns claims for the subject.
+/// Handles GET/POST requests to the UserInfo endpoint (OIDC Core §5.3).
+/// Accepts live Bearer, DPoP-bound (RFC 9449) and certificate-bound (RFC 8705) access tokens
+/// and reports failures with RFC 6750 §3 challenges.
 /// </summary>
 public sealed class UserInfoEndpointHandler
 {
-    private readonly TokenFactory _tokenFactory;
+    private readonly AccessTokenService _accessTokens;
     private readonly IOptions<ProviderOptions> _options;
     private readonly DPopProofValidator _dpopValidator;
+    private readonly ClientAuthenticator _clientAuthenticator;
     private readonly IProviderEventSink _events;
 
     public UserInfoEndpointHandler(
-        TokenFactory tokenFactory,
+        AccessTokenService accessTokens,
         IOptions<ProviderOptions> options,
         DPopProofValidator dpopValidator,
+        ClientAuthenticator clientAuthenticator,
         IProviderEventSink events)
     {
-        _tokenFactory = tokenFactory;
+        _accessTokens = accessTokens;
         _options = options;
         _dpopValidator = dpopValidator;
+        _clientAuthenticator = clientAuthenticator;
         _events = events;
     }
 
@@ -37,58 +39,49 @@ public sealed class UserInfoEndpointHandler
     {
         var opts = _options.Value;
 
-        // RFC 9449 §7.1: DPoP tokens use "Authorization: DPoP <token>".
-        var (token, isDPoP) = ExtractToken(context);
+        var (token, scheme) = ExtractToken(context);
         if (token is null)
+            return Challenge(context, scheme ?? "Bearer", error: null, "access token is required", 401);
+
+        var live = await _accessTokens.ValidateAsync(token, ct);
+        if (live is null)
+            return Challenge(context, scheme!, "invalid_token", "access token is invalid, expired or revoked", 401);
+        var (principal, record) = live;
+
+        // ── Sender constraint (RFC 9449 §7, RFC 8705 §3) ─────────────────────
+        if (record.CnfJwkThumbprint is not null)
         {
-            context.Response.Headers.WWWAuthenticate =
-                opts.DPoPEnabled ? "Bearer realm=\"NetOidc\", DPoP" : "Bearer realm=\"NetOidc\"";
-            return Results.Unauthorized();
+            // A DPoP-bound token presented as a Bearer token is a downgrade attempt.
+            if (scheme != "DPoP")
+                return Challenge(context, "DPoP", "invalid_token", "DPoP-bound token must use the DPoP scheme", 401);
+
+            var proofThumbprint = await _dpopValidator.ValidateProofAsync(
+                context.Request.Headers["DPoP"].ToString(),
+                context.Request.Method,
+                opts.Issuer.TrimEnd('/') + opts.UserInfoEndpoint,
+                accessToken: token,
+                clockSkewSeconds: opts.DPoPProofLifetimeSeconds);
+            if (proofThumbprint is null || proofThumbprint != record.CnfJwkThumbprint)
+                return Challenge(context, "DPoP", "invalid_dpop_proof", "DPoP proof is missing or invalid", 401);
+        }
+        else if (scheme == "DPoP")
+        {
+            return Challenge(context, "Bearer", "invalid_token", "token is not DPoP-bound", 401);
         }
 
-        var principal = await _tokenFactory.ValidateAccessTokenAsync(token, ct);
-        if (principal is null)
+        if (record.CnfX5tS256 is not null)
         {
-            context.Response.Headers.WWWAuthenticate =
-                "Bearer realm=\"NetOidc\", error=\"invalid_token\"";
-            return Results.Unauthorized();
+            var cert = _clientAuthenticator.GetClientCertificate(context);
+            if (cert is null || ClientAuthenticator.ComputeCertThumbprint(cert) != record.CnfX5tS256)
+                return Challenge(context, scheme!, "invalid_token", "token is bound to a different client certificate", 401);
         }
 
-        // Validate DPoP proof when the token was sent as a DPoP token.
-        if (isDPoP || opts.DPoPEnabled)
-        {
-            var cnfJkt = ExtractCnfJkt(token);
-            if (cnfJkt is not null)
-            {
-                // DPoP-bound token: the proof must be present and commit to this token.
-                var dpopHeader = context.Request.Headers["DPoP"].ToString();
-                var userInfoUri = opts.Issuer.TrimEnd('/') + opts.UserInfoEndpoint;
-                var proofThumbprint = await _dpopValidator.ValidateProofAsync(
-                    dpopHeader,
-                    context.Request.Method,
-                    userInfoUri,
-                    accessToken: token,
-                    clockSkewSeconds: opts.DPoPProofLifetimeSeconds);
+        // ── Authorisation ────────────────────────────────────────────────────
+        if (!record.Scopes.Contains("openid") || record.Subject is null)
+            return Challenge(context, scheme!, "insufficient_scope", "the openid scope is required", 403, scope: "openid");
 
-                if (proofThumbprint is null || proofThumbprint != cnfJkt)
-                {
-                    context.Response.Headers.WWWAuthenticate =
-                        "DPoP realm=\"NetOidc\", error=\"invalid_dpop_proof\"";
-                    return Results.Unauthorized();
-                }
-            }
-        }
-
-        var sub = principal.FindFirstValue("sub");
-        if (sub is null)
-            return Results.Unauthorized();
-
-        var scopesClaim = principal.FindFirstValue("scope") ?? string.Empty;
-        var scopes = scopesClaim
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .ToList()
-            .AsReadOnly();
-
+        var sub = record.Subject;
+        var scopes = record.Scopes.ToList().AsReadOnly();
         var claims = await opts.FindUserClaims(sub, scopes, ct);
         var response = new Dictionary<string, object>(claims) { ["sub"] = sub };
 
@@ -98,31 +91,39 @@ public sealed class UserInfoEndpointHandler
         return Results.Json(response);
     }
 
-    private static (string? Token, bool IsDPoP) ExtractToken(HttpContext context)
+    /// <summary>
+    /// Reads the token from the Authorization header. Returns the scheme ("Bearer"/"DPoP"),
+    /// or <c>null</c> when absent.
+    /// </summary>
+    private static (string? Token, string? Scheme) ExtractToken(HttpContext context)
     {
         var auth = context.Request.Headers.Authorization.ToString();
         if (auth.StartsWith("DPoP ", StringComparison.OrdinalIgnoreCase))
-            return (auth["DPoP ".Length..].Trim(), true);
+            return (auth["DPoP ".Length..].Trim(), "DPoP");
         if (auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-            return (auth["Bearer ".Length..].Trim(), false);
-        return (null, false);
+            return (auth["Bearer ".Length..].Trim(), "Bearer");
+        return (null, null);
     }
 
-    /// <summary>
-    /// Reads the <c>cnf.jkt</c> claim from a JWT access token without re-validating it.
-    /// Returns <c>null</c> when the claim is absent.
-    /// </summary>
-    private static string? ExtractCnfJkt(string rawToken)
+    /// <summary>Builds an RFC 6750 §3 / RFC 9449 §7.1 challenge response.</summary>
+    private IResult Challenge(
+        HttpContext context, string scheme, string? error, string description, int status, string? scope = null)
     {
-        try
+        var parts = new List<string> { "realm=\"NetOidc\"" };
+        if (error is not null)
         {
-            var jwt = new JsonWebToken(rawToken);
-            if (jwt.TryGetPayloadValue<JsonElement>("cnf", out var cnf) &&
-                cnf.TryGetProperty("jkt", out var jkt))
-                return jkt.GetString();
+            parts.Add($"error=\"{error}\"");
+            parts.Add($"error_description=\"{description}\"");
         }
-        catch { /* malformed */ }
-        return null;
+        if (scope is not null) parts.Add($"scope=\"{scope}\"");
+        if (scheme == "DPoP") parts.Add("algs=\"ES256 ES384 ES512 RS256 RS384 RS512 PS256 PS384 PS512\"");
+
+        var challenges = new List<string> { $"{scheme} {string.Join(", ", parts)}" };
+        // Advertise the other scheme too when DPoP is enabled and no error is being reported.
+        if (error is null && _options.Value.DPoPEnabled && scheme == "Bearer")
+            challenges.Add("DPoP realm=\"NetOidc\"");
+
+        context.Response.Headers.WWWAuthenticate = challenges.ToArray();
+        return Results.StatusCode(status);
     }
 }
-

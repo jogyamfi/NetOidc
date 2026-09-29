@@ -156,32 +156,51 @@ implementation differs from the text above, or leaves work for a later item:
 
 ## Phase 2 — Hardening
 
-- [ ] **P2.1 Client assertion validation**
+- [x] **P2.1 Client assertion validation**
   ([ClientAuthenticator.cs:121-198](../src/NetOidc.Provider/Token/ClientAuthenticator.cs#L121-L198)) —
   require `sub == iss == client_id`, `jti` replay protection, max `exp` window, restrict
   algorithms; `client_secret_jwt` must use the raw secret as the HMAC key and DCR must issue
   secrets long enough for the chosen alg. Reject requests presenting more than one auth method.
-- [ ] **P2.2 mTLS certificate sourcing** — only read `MtlsClientCertificateHeader` from
+- [x] **P2.2 mTLS certificate sourcing** — only read `MtlsClientCertificateHeader` from
   configured trusted proxies (`KnownProxies`/`KnownNetworks`); for `tls_client_auth` validate
   the chain against configured trust anchors; compare subject DN using RFC 4514 normalisation;
   support multiple SAN URIs (not just the first).
-- [ ] **P2.3 Token endpoint `redirect_uri`** — required and exact-matched when it was present in
+- [x] **P2.3 Token endpoint `redirect_uri`** — required and exact-matched when it was present in
   the authorization request ([TokenEndpointHandler.cs:158](../src/NetOidc.Provider/Token/TokenEndpointHandler.cs#L158)).
-- [ ] **P2.4 UserInfo** ([UserInfoEndpointHandler.cs](../src/NetOidc.Provider/UserInfo/UserInfoEndpointHandler.cs)) —
+- [x] **P2.4 UserInfo** ([UserInfoEndpointHandler.cs](../src/NetOidc.Provider/UserInfo/UserInfoEndpointHandler.cs)) —
   check revocation via the store; enforce `cnf.x5t#S256` bound tokens; reject DPoP-bound tokens
   presented with the `Bearer` scheme; require the `openid` scope; return RFC 6750 error codes.
-- [ ] **P2.5 Revocation cascade** — revoking a refresh token revokes access tokens from the same
+- [x] **P2.5 Revocation cascade** — revoking a refresh token revokes access tokens from the same
   grant (RFC 7009 §2.1); add `GrantId` linkage (see P3.9).
-- [ ] **P2.6 CSRF** — antiforgery on device approval POST
+- [x] **P2.6 CSRF** — antiforgery on device approval POST
   ([DeviceVerificationEndpointHandler.cs](../src/NetOidc.Provider/Device/DeviceVerificationEndpointHandler.cs))
   and the sample login form; user-code attempt rate limiting.
-- [ ] **P2.7 Resource exhaustion** — expiry sweeper for `InMemoryAdapter`, `VciService` nonces
+- [x] **P2.7 Resource exhaustion** — expiry sweeper for `InMemoryAdapter`, `VciService` nonces
   and the DPoP `jti` cache; rate limiting on unauthenticated endpoints (nonce, DCR, device).
-- [ ] **P2.8 CORS** — apply only to endpoints browsers call cross-origin (token, userinfo,
+- [x] **P2.8 CORS** — apply only to endpoints browsers call cross-origin (token, userinfo,
   discovery, JWKS, revocation); never to authorize/device/DCR; no `AllowAnyOrigin` default —
   derive origins from registered redirect URIs.
-- [ ] **P2.9 Error hygiene** — stop echoing exception messages to clients
+- [x] **P2.9 Error hygiene** — stop echoing exception messages to clients
   (e.g. VCI `ex.Message`, JWT validation messages in `error_description`); log them instead.
+
+### Phase 2 — implementation notes (branch `fix/p2-hardening`)
+
+All nine items are implemented with regression tests (335 tests pass). The new tests that
+compile against the pre-fix code were run on `main` and fail as expected (20 of 27; the rest
+cover behaviour that was already correct). Where the implementation differs from the text
+above, or leaves work for a later item:
+
+| Item | Note |
+|------|------|
+| P2.1 | `ClientAuthenticator` is now an injected service. New `ClientAssertionMaxLifetimeSeconds` (default 300). Basic-auth credentials are form-decoded (`+` → space). DCR secrets are 64 random bytes. |
+| P2.2 | New `MtlsTrustedProxies`, `MtlsCertificateAuthorities` (empty = OS trust store) and `MtlsRevocationMode` (default `NoCheck`). A client whose method is not mTLS may present a certificate and still use its secret. `self_signed_tls_client_auth` now also checks the certificate validity period and is allowed under FAPI 2.0 (P3.13 overlap). |
+| P2.3 | `AuthorizationCode.RedirectUriInRequest` records whether the value was sent. |
+| P2.4 | Only the Authorization header is accepted (form-body tokens are not). Challenges follow RFC 6750 §3 / RFC 9449 §7.1. |
+| P2.5 | Implemented through `AccessTokenService`: access tokens issued with a refresh token carry its grant id and die with the grant. Full grant linkage (codes, consent) remains P3.9. |
+| P2.6 | The device prompt (`GET`) returns a `csrf` object; `POST` must include it. The token is bound to the signed-in identity, so hosts must fetch the prompt after login. New `DeviceUserCodeMaxFailedAttempts` / `DeviceUserCodeFailureWindowSeconds`. The sample host login form uses antiforgery. |
+| P2.7 | Throttles run inside the handlers (no host middleware needed); new `UnauthenticatedRequestsPerMinute` (default 60, 0 disables) covers nonce, registration and device authorization. Stores sweep every 30 s. All in-process; distributed variants are P4.3. |
+| P2.8 | Origins = `CorsAllowedOrigins` ∪ origins of static clients' redirect URIs. Dynamically registered clients are not included automatically. |
+| P2.9 | Only `ClientMetadataValidationException` messages from `ValidateDynamicClient` reach clients. First `ILogger` usage in the library (DCR, JAR, jwt-bearer, VCI, back-channel logout); full logging remains P4.2. |
 
 ---
 

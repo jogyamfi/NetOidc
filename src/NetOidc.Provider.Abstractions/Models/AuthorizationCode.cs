@@ -6,6 +6,13 @@ public sealed class AuthorizationCode
     public required string Code { get; init; }
     public required string ClientId { get; init; }
     public required string RedirectUri { get; init; }
+
+    /// <summary>
+    /// True when <see cref="RedirectUri"/> was sent in the authorization request (rather than
+    /// defaulted from the client's single registered URI). The token request must then repeat
+    /// it exactly (RFC 6749 §4.1.3).
+    /// </summary>
+    public bool RedirectUriInRequest { get; init; }
     public required string Subject { get; init; }
     public IReadOnlyList<string> Scopes { get; init; } = [];
     public string? Nonce { get; init; }

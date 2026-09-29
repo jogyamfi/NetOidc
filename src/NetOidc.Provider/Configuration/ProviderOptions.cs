@@ -242,6 +242,29 @@ public sealed class ProviderOptions
     /// </summary>
     public string? MtlsClientCertificateHeader { get; set; }
 
+    /// <summary>
+    /// Addresses (IP or CIDR, e.g. <c>10.0.0.0/8</c>) of the reverse proxies allowed to supply
+    /// <see cref="MtlsClientCertificateHeader"/>. The header is ignored from any other peer, so
+    /// clients cannot forge a certificate by sending the header themselves.
+    /// </summary>
+    public IList<string> MtlsTrustedProxies { get; set; } = [];
+
+    /// <summary>
+    /// Trust anchors for <c>tls_client_auth</c> certificates. When empty, the operating
+    /// system's trusted root store is used.
+    /// </summary>
+    public IList<System.Security.Cryptography.X509Certificates.X509Certificate2> MtlsCertificateAuthorities { get; set; } = [];
+
+    /// <summary>Revocation checking for <c>tls_client_auth</c> chains (default: no check).</summary>
+    public System.Security.Cryptography.X509Certificates.X509RevocationMode MtlsRevocationMode { get; set; }
+        = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck;
+
+    /// <summary>
+    /// Maximum remaining lifetime (<c>exp</c> − now) accepted for <c>private_key_jwt</c> and
+    /// <c>client_secret_jwt</c> assertions. Default 300 s.
+    /// </summary>
+    public int ClientAssertionMaxLifetimeSeconds { get; set; } = 300;
+
     // ── Phase 6 — Device Authorization Grant (RFC 8628) ──────────────────────
 
     /// <summary>When true, the device authorization endpoint is active.</summary>
@@ -262,6 +285,25 @@ public sealed class ProviderOptions
     /// Minimum polling interval in seconds for the device_code grant (default 5 s per RFC 8628 §3.5).
     /// </summary>
     public int DevicePollingIntervalSeconds { get; set; } = 5;
+
+    /// <summary>
+    /// Wrong or expired user codes a signed-in user may enter per
+    /// <see cref="DeviceUserCodeFailureWindowSeconds"/> before further attempts are refused
+    /// (RFC 8628 §5.1). Default 5.
+    /// </summary>
+    public int DeviceUserCodeMaxFailedAttempts { get; set; } = 5;
+
+    /// <summary>Window for <see cref="DeviceUserCodeMaxFailedAttempts"/> in seconds (default 300).</summary>
+    public int DeviceUserCodeFailureWindowSeconds { get; set; } = 300;
+
+    // ── Abuse protection ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Per-IP request budget per minute for endpoints that require no credentials or accept
+    /// untrusted input before authenticating (c_nonce, registration, device authorization).
+    /// 0 disables the limit. Default 60.
+    /// </summary>
+    public int UnauthenticatedRequestsPerMinute { get; set; } = 60;
 
     // ── Phase 6 — CIBA (OpenID CIBA Core 1.0) ────────────────────────────────
 
@@ -357,8 +399,8 @@ public sealed class ProviderOptions
     public bool CorsEnabled { get; set; } = false;
 
     /// <summary>
-    /// Allowed CORS origins. An empty list (while <see cref="CorsEnabled"/> is true)
-    /// allows all origins (<c>*</c>).
+    /// Additional allowed CORS origins. The origins of static clients' redirect URIs are always
+    /// allowed; a wildcard is never used. Dynamically registered clients must be listed here.
     /// </summary>
     public IList<string> CorsAllowedOrigins { get; set; } = [];
 }

@@ -43,6 +43,8 @@ internal sealed class TestWebApp : IAsyncDisposable
         {
             opts.Issuer = "https://auth.test.example.com";
             opts.LoginPath = "/test/signin";
+            // Requests arrive from loopback (see middleware below), acting as the TLS proxy.
+            opts.MtlsTrustedProxies = ["127.0.0.1"];
 
             opts.StaticClients =
             [
@@ -157,6 +159,18 @@ internal sealed class TestWebApp : IAsyncDisposable
         configureBuilder?.Invoke(oidcBuilder);
 
         _app = builder.Build();
+
+        // TestServer leaves RemoteIpAddress unset; model a direct loopback peer unless a
+        // test supplies its own via the X-Test-Remote-Ip header.
+        _app.Use((ctx, next) =>
+        {
+            ctx.Connection.RemoteIpAddress =
+                System.Net.IPAddress.TryParse(ctx.Request.Headers["X-Test-Remote-Ip"], out var ip)
+                    ? ip
+                    : System.Net.IPAddress.Loopback;
+            return next();
+        });
+        _app.UseCors();
         _app.UseAuthentication();
 
         // Test-only: sign in any subject without credentials.

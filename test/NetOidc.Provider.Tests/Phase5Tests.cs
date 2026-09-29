@@ -550,6 +550,7 @@ public sealed class Phase5Tests
         {
             opts.MtlsEnabled = true;
             opts.MtlsClientCertificateHeader = "X-Client-Cert";
+            opts.MtlsCertificateAuthorities = [cert];   // the self-signed cert is its own root
 
             opts.StaticClients = [
                 .. opts.StaticClients,

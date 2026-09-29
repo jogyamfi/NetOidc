@@ -24,6 +24,23 @@ public sealed class Phase6Tests
         Assert.Equal(HttpStatusCode.NoContent, resp.StatusCode);
     }
 
+    /// <summary>
+    /// Posts a device decision the way a host UI would: fetch the verification prompt (which
+    /// sets the antiforgery cookie and returns the request token), then post it back.
+    /// </summary>
+    internal static async Task<HttpResponseMessage> DeviceDecisionAsync(
+        HttpClient client, string userCode, string action)
+    {
+        var prompt = JsonDocument.Parse(await client.GetStringAsync("/connect/device"));
+        var csrf = prompt.RootElement.GetProperty("csrf");
+        return await client.PostAsync("/connect/device", new FormUrlEncodedContent(
+        [
+            new("user_code", userCode),
+            new("action", action),
+            new(csrf.GetProperty("field_name").GetString()!, csrf.GetProperty("token").GetString()!),
+        ]));
+    }
+
     // ════════════════════════════════════════════════════════════════════════════
     // Device Authorization Grant (RFC 8628)
     // ════════════════════════════════════════════════════════════════════════════
@@ -115,14 +132,7 @@ public sealed class Phase6Tests
 
         // User signs in and approves via the verification endpoint
         await SignInAsync(app.Client, "device-user");
-        var verifyResp = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/device")
-        {
-            Content = new FormUrlEncodedContent(
-            [
-                new("user_code", userCodeFormatted),
-                new("action", "approve"),
-            ]),
-        });
+        var verifyResp = await DeviceDecisionAsync(app.Client, userCodeFormatted, "approve");
         Assert.Equal(HttpStatusCode.OK, verifyResp.StatusCode);
 
         // Poll token endpoint — should now succeed
@@ -161,11 +171,7 @@ public sealed class Phase6Tests
         var userCodeFormatted = authBody.RootElement.GetProperty("user_code").GetString()!;
 
         await SignInAsync(app.Client, "device-user-deny");
-        await app.Client.PostAsync("/connect/device", new FormUrlEncodedContent(
-        [
-            new("user_code", userCodeFormatted),
-            new("action", "deny"),
-        ]));
+        await DeviceDecisionAsync(app.Client, userCodeFormatted, "deny");
 
         var tokenResp = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/token")
         {

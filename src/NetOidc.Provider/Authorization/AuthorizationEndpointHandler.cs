@@ -98,6 +98,7 @@ public sealed class AuthorizationEndpointHandler
 
         // Re-read redirect_uri from effective params (may come from PAR/JAR)
         var redirectUri = GetParam(effectiveParams, "redirect_uri");
+        var redirectUriInRequest = !string.IsNullOrEmpty(redirectUri);
         if (string.IsNullOrEmpty(redirectUri))
         {
             if (client.RedirectUris.Count == 1)
@@ -278,6 +279,7 @@ public sealed class AuthorizationEndpointHandler
                 Code = codeValue,
                 ClientId = clientId,
                 RedirectUri = redirectUri,
+                RedirectUriInRequest = redirectUriInRequest,
                 Subject = effectiveSub,
                 Scopes = grantedScopes,
                 Nonce = string.IsNullOrEmpty(nonce) ? null : nonce,
@@ -467,9 +469,9 @@ public sealed class AuthorizationEndpointHandler
             if (doc.RootElement.ValueKind != JsonValueKind.Array)
                 return (null, "authorization_details must be a JSON array");
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            return (null, $"authorization_details is not valid JSON: {ex.Message}");
+            return (null, "authorization_details is not valid JSON");
         }
 
         return (authDetailsParam, null);

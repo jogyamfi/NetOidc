@@ -3,10 +3,19 @@ using NetOidc.Provider.Abstractions.Adapters;
 
 namespace NetOidc.Provider.Adapters;
 
-/// <summary>Thread-safe in-memory adapter with optional TTL expiry.</summary>
+/// <summary>
+/// Thread-safe in-memory adapter with optional TTL expiry. Expired entries are swept
+/// periodically so abandoned codes and tokens do not accumulate.
+/// </summary>
 public sealed class InMemoryAdapter<T> : IAdapter<T> where T : class
 {
+    private static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(30);
+
     private readonly ConcurrentDictionary<string, (T Entity, DateTimeOffset? ExpiresAt)> _store = new();
+    private long _nextSweepTicks = DateTimeOffset.UtcNow.Add(SweepInterval).UtcTicks;
+
+    /// <summary>Number of entries currently held, including not-yet-swept expired ones.</summary>
+    internal int Count => _store.Count;
 
     public Task<T?> FindAsync(string id, CancellationToken ct = default)
     {
@@ -23,8 +32,10 @@ public sealed class InMemoryAdapter<T> : IAdapter<T> where T : class
 
     public Task StoreAsync(string id, T entity, TimeSpan? expiresIn = null, CancellationToken ct = default)
     {
-        var expiresAt = expiresIn.HasValue ? DateTimeOffset.UtcNow + expiresIn.Value : (DateTimeOffset?)null;
+        var now = DateTimeOffset.UtcNow;
+        var expiresAt = expiresIn.HasValue ? now + expiresIn.Value : (DateTimeOffset?)null;
         _store[id] = (entity, expiresAt);
+        SweepIfDue(now);
         return Task.CompletedTask;
     }
 
@@ -42,5 +53,23 @@ public sealed class InMemoryAdapter<T> : IAdapter<T> where T : class
 
         return Task.FromResult(
             entry.ExpiresAt is null || entry.ExpiresAt > DateTimeOffset.UtcNow ? entry.Entity : null);
+    }
+
+    /// <summary>Removes every expired entry now.</summary>
+    internal void Sweep(DateTimeOffset now)
+    {
+        foreach (var kv in _store)
+            if (kv.Value.ExpiresAt is { } expiresAt && expiresAt <= now)
+                _store.TryRemove(kv);
+    }
+
+    private void SweepIfDue(DateTimeOffset now)
+    {
+        var due = Interlocked.Read(ref _nextSweepTicks);
+        // Only the caller that advances the deadline performs the sweep.
+        if (now.UtcTicks < due ||
+            Interlocked.CompareExchange(ref _nextSweepTicks, now.Add(SweepInterval).UtcTicks, due) != due)
+            return;
+        Sweep(now);
     }
 }

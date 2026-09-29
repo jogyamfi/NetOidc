@@ -106,6 +106,16 @@ public static class ServiceCollectionExtensions
         // Refresh-token rotation, reuse detection and binding
         services.TryAddSingleton<RefreshTokenService>();
 
+        // Client authentication (all token-endpoint auth methods, mTLS certificate sourcing)
+        services.TryAddSingleton<ClientAuthenticator>();
+
+        // Access-token liveness (signature, store record, grant) shared by all resource endpoints
+        services.TryAddSingleton<AccessTokenService>();
+
+        // Abuse protection: antiforgery for user-facing POSTs, in-handler throttles
+        services.AddAntiforgery();
+        services.TryAddSingleton<RequestThrottle>();
+
         // Endpoint handlers
         services.TryAddSingleton<AuthorizationEndpointHandler>();
         services.TryAddSingleton<TokenEndpointHandler>();
@@ -156,14 +166,24 @@ internal sealed class NetOidcCorsSetup
         if (!opts.CorsEnabled)
             return;
 
-        options.AddPolicy("NetOidcCors", policy =>
-        {
-            if (opts.CorsAllowedOrigins.Count == 0)
-                policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
-            else
-                policy.WithOrigins([.. opts.CorsAllowedOrigins])
-                      .AllowAnyMethod()
-                      .AllowAnyHeader();
-        });
+        // Never "*": allow the configured origins plus the origins of registered redirect URIs.
+        var origins = opts.CorsAllowedOrigins
+            .Concat(opts.StaticClients.SelectMany(c => c.RedirectUris))
+            .Select(OriginOf)
+            .OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        options.AddPolicy("NetOidcCors", policy => policy
+            .WithOrigins(origins)
+            .WithMethods("GET", "POST")
+            .WithHeaders("Authorization", "Content-Type", "DPoP")
+            .WithExposedHeaders("WWW-Authenticate", "DPoP-Nonce"));
     }
+
+    /// <summary>Returns the web origin (scheme://host[:port]) of an http(s) URI, else <c>null</c>.</summary>
+    private static string? OriginOf(string uri) =>
+        Uri.TryCreate(uri, UriKind.Absolute, out var u) && u.Scheme is "https" or "http"
+            ? u.GetLeftPart(UriPartial.Authority)
+            : null;
 }

@@ -17,7 +17,7 @@ namespace NetOidc.Provider.Token;
 /// </summary>
 public sealed class RevocationEndpointHandler
 {
-    private readonly IClientStore _clientStore;
+    private readonly ClientAuthenticator _clientAuthenticator;
     private readonly IAdapter<AccessToken> _accessTokenStore;
     private readonly IAdapter<RefreshToken> _refreshTokenStore;
     private readonly TokenFactory _tokenFactory;
@@ -26,7 +26,7 @@ public sealed class RevocationEndpointHandler
     private readonly RefreshTokenService _refreshTokens;
 
     public RevocationEndpointHandler(
-        IClientStore clientStore,
+        ClientAuthenticator clientAuthenticator,
         IAdapter<AccessToken> accessTokenStore,
         IAdapter<RefreshToken> refreshTokenStore,
         TokenFactory tokenFactory,
@@ -35,7 +35,7 @@ public sealed class RevocationEndpointHandler
         RefreshTokenService refreshTokens)
     {
         _refreshTokens = refreshTokens;
-        _clientStore = clientStore;
+        _clientAuthenticator = clientAuthenticator;
         _accessTokenStore = accessTokenStore;
         _refreshTokenStore = refreshTokenStore;
         _tokenFactory = tokenFactory;
@@ -51,8 +51,7 @@ public sealed class RevocationEndpointHandler
 
         var form = await context.Request.ReadFormAsync(ct);
 
-        var caller = await ClientAuthenticator.AuthenticateAsync(
-            context, form, _clientStore, _options.Value, ct);
+        var caller = await _clientAuthenticator.AuthenticateAsync(context, form, ct);
         if (caller is null)
         {
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"NetOidc\"";
