@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
+using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Events;
+using NetOidc.Provider.Claims;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.DPoP;
 using NetOidc.Provider.Token;
@@ -20,14 +22,23 @@ public sealed class UserInfoEndpointHandler
     private readonly DPopProofValidator _dpopValidator;
     private readonly ClientAuthenticator _clientAuthenticator;
     private readonly IProviderEventSink _events;
+    private readonly IClientStore _clientStore;
+    private readonly UserClaimsService _userClaims;
+    private readonly SubjectIdentifierService _subjects;
 
     public UserInfoEndpointHandler(
         AccessTokenService accessTokens,
         IOptions<ProviderOptions> options,
         DPopProofValidator dpopValidator,
         ClientAuthenticator clientAuthenticator,
-        IProviderEventSink events)
+        IProviderEventSink events,
+        IClientStore clientStore,
+        UserClaimsService userClaims,
+        SubjectIdentifierService subjects)
     {
+        _clientStore = clientStore;
+        _userClaims = userClaims;
+        _subjects = subjects;
         _accessTokens = accessTokens;
         _options = options;
         _dpopValidator = dpopValidator;
@@ -80,13 +91,19 @@ public sealed class UserInfoEndpointHandler
         if (!record.Scopes.Contains("openid") || record.Subject is null)
             return Challenge(context, scheme!, "insufficient_scope", "the openid scope is required", 403, scope: "openid");
 
-        var sub = record.Subject;
-        var scopes = record.Scopes.ToList().AsReadOnly();
-        var claims = await opts.FindUserClaims(sub, scopes, ct);
-        var response = new Dictionary<string, object>(claims) { ["sub"] = sub };
+        var client = await _clientStore.FindClientAsync(record.ClientId, ct);
+        if (client is null)
+            return Challenge(context, scheme!, "invalid_token", "the client of this token no longer exists", 401);
+
+        // The local subject reaches the claims source; the client sees its own (pairwise) sub.
+        var localSubject = record.Subject;
+        var scopes = record.Scopes;
+        var claims = await _userClaims.GetClaimsAsync(localSubject, client, scopes,
+            ClaimsEngine.Parse(record.ClaimsRequest), ClaimsDestination.UserInfo, includeScopeClaims: true, ct);
+        var response = new Dictionary<string, object>(claims) { ["sub"] = _subjects.Compute(localSubject, client) };
 
         await _events.UserInfoRequestedAsync(new UserInfoRequestedEvent(
-            sub, scopes, DateTimeOffset.UtcNow), ct);
+            localSubject, scopes, DateTimeOffset.UtcNow), ct);
 
         return Results.Json(response);
     }

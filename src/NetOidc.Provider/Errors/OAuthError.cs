@@ -16,6 +16,20 @@ public sealed record OAuthError(
     public static OAuthError UnsupportedGrantType(string? description = null) => new("unsupported_grant_type", description);
     public static OAuthError InvalidScope(string? description = null) => new("invalid_scope", description);
 
+    // ── OIDC Core §3.1.2.6 authentication errors ─────────────────────────────
+
+    public static OAuthError LoginRequired(string? description = null) => new("login_required", description);
+    public static OAuthError ConsentRequired(string? description = null) => new("consent_required", description);
+    public static OAuthError AccountSelectionRequired(string? description = null) => new("account_selection_required", description);
+    public static OAuthError InteractionRequired(string? description = null) => new("interaction_required", description);
+    public static OAuthError RequestUriNotSupported(string? description = null) => new("request_uri_not_supported", description);
+    // ── CIBA Core §13 ────────────────────────────────────────────────────────
+    public static OAuthError MissingUserCode(string? description = null) => new("missing_user_code", description);
+    public static OAuthError InvalidBindingMessage(string? description = null) => new("invalid_binding_message", description);
+    public static OAuthError UnknownUserId(string? description = null) => new("unknown_user_id", description);
+
+    public static OAuthError RequestNotSupported(string? description = null) => new("request_not_supported", description);
+
     /// <summary>RFC 7591 §3.2.2: a redirect URI in a registration request is invalid.</summary>
     public static OAuthError InvalidRedirectUri(string? description = null) => new("invalid_redirect_uri", description);
 

@@ -57,6 +57,7 @@ public sealed class PairwiseSubjectTests
             ClientId = "c",
             SectorIdentifierUri = "https://rp-a.example.com/sector.json",
             RedirectUris = ["https://x.example.com/cb", "https://y.example.com/cb"],
+            RequireConsent = false,
         });
 
         Assert.Equal(a1, a2);          // same sector → same pairwise sub

@@ -22,8 +22,11 @@ public sealed class AccessToken
 
     // ── Phase 4 ──────────────────────────────────────────────────────────────
 
-    /// <summary>Resource indicator bound to this token (RFC 8707).</summary>
-    public string? Resource { get; init; }
+    /// <summary>Resource indicators (RFC 8707) the token is intended for; they form its <c>aud</c>.</summary>
+    public IReadOnlyList<string> Resources { get; init; } = [];
+
+    /// <summary>Raw JSON of the OIDC <c>claims</c> request, used by the UserInfo endpoint (§5.5).</summary>
+    public string? ClaimsRequest { get; init; }
 
     /// <summary>JSON-encoded <c>authorization_details</c> array (RFC 9396).</summary>
     public string? AuthorizationDetailsJson { get; init; }

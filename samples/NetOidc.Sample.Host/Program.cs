@@ -16,18 +16,20 @@ builder.Services
 builder.Services.AddNetOidc(options =>
 {    options.Issuer = "http://localhost:5001";
     options.LoginPath = "/account/login";
+    options.LogoutEnabled = true;
 
-    options.FindUserClaims = (sub, scopes, ct) =>
+    // Return whatever is known about the user; the provider releases only the claims that the
+    // granted scopes (or an explicit claims request) allow — see request.ClaimNames.
+    options.FindUserClaims = (request, ct) =>
     {
-        var claims = new Dictionary<string, object> { ["sub"] = sub };
-        if (scopes.Contains("profile"))
+        var sub = request.Subject;
+        var claims = new Dictionary<string, object>
         {
-            claims["name"] = sub == "alice" ? "Alice Smith" : sub;
-            claims["given_name"] = "Alice";
-            claims["family_name"] = "Smith";
-        }
-        if (scopes.Contains("email"))
-            claims["email"] = $"{sub}@example.com";
+            ["name"] = sub == "alice" ? "Alice Smith" : sub,
+            ["given_name"] = "Alice",
+            ["family_name"] = "Smith",
+            ["email"] = $"{sub}@example.com",
+        };
         return Task.FromResult<IReadOnlyDictionary<string, object>>(claims);
     };
 
@@ -37,11 +39,14 @@ builder.Services.AddNetOidc(options =>
         {
             ClientId = "sample-client",
             ClientSecret = "sample-secret",
-            AllowedGrantTypes = ["authorization_code"],
+            AllowedGrantTypes = ["authorization_code", "refresh_token"],
             AllowedScopes = ["openid", "profile", "email"],
             RedirectUris = ["http://localhost:3000/callback"],
+            PostLogoutRedirectUris = ["http://localhost:3000/signout-callback-oidc"],
             TokenEndpointAuthMethod = "client_secret_basic",
             RequirePkce = true,
+            // First-party sample app: no consent page is provided.
+            RequireConsent = false,
         }
     ];
 
@@ -115,6 +120,33 @@ app.MapPost("/account/login", async (HttpContext ctx, IAntiforgery antiforgery) 
         <html><body>
           <p>Invalid credentials. <a href="/account/login">Try again</a></p>
         </body></html>
+        """, "text/html");
+});
+
+// ── Logout confirmation (RP-Initiated Logout §2) ────────────────────────────
+// Shown when a logout request carries no valid id_token_hint. Re-posts the original
+// parameters to the end-session endpoint with confirm=true and an antiforgery token.
+
+app.MapGet("/account/logout", (HttpContext ctx, IAntiforgery antiforgery) =>
+{
+    var enc = HtmlEncoder.Default;
+    var csrf = antiforgery.GetAndStoreTokens(ctx);
+    var hidden = string.Concat(ctx.Request.Query.Select(q =>
+        $"""<input type="hidden" name="{enc.Encode(q.Key)}" value="{enc.Encode(q.Value.ToString())}" />"""));
+    return Results.Content($"""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Sign out - NetOidc Sample</title></head>
+        <body>
+          <h1>Sign out?</h1>
+          <form method="post" action="/connect/end_session">
+            {hidden}
+            <input type="hidden" name="{enc.Encode(csrf.FormFieldName)}" value="{enc.Encode(csrf.RequestToken!)}" />
+            <input type="hidden" name="confirm" value="true" />
+            <button type="submit">Sign out</button>
+          </form>
+        </body>
+        </html>
         """, "text/html");
 });
 

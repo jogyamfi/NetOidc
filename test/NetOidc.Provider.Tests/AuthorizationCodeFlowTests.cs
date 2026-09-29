@@ -143,6 +143,7 @@ public sealed class AuthorizationCodeFlowTests
                     AllowedGrantTypes = ["authorization_code"],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = ["https://client.test.example.com/callback"],
+                    RequireConsent = false,
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = true,
                 }
@@ -194,6 +195,7 @@ public sealed class AuthorizationCodeFlowTests
                     AllowedGrantTypes = ["authorization_code"],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = ["https://client.test.example.com/callback"],
+                    RequireConsent = false,
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = true,
                 }

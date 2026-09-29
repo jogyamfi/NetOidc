@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
 using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
+using NetOidc.Provider.Claims;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
 using NetOidc.Provider.Jose;
@@ -21,6 +22,8 @@ public sealed class IntrospectionEndpointHandler
     private readonly ClientAuthenticator _clientAuthenticator;
     private readonly AccessTokenService _accessTokens;
     private readonly RefreshTokenService _refreshTokens;
+    private readonly IClientStore _clientStore;
+    private readonly SubjectIdentifierService _subjects;
     private readonly IOptions<ProviderOptions> _options;
     private readonly IProviderEventSink _events;
 
@@ -28,12 +31,16 @@ public sealed class IntrospectionEndpointHandler
         ClientAuthenticator clientAuthenticator,
         AccessTokenService accessTokens,
         RefreshTokenService refreshTokens,
+        IClientStore clientStore,
+        SubjectIdentifierService subjects,
         IOptions<ProviderOptions> options,
         IProviderEventSink events)
     {
         _clientAuthenticator = clientAuthenticator;
         _accessTokens = accessTokens;
         _refreshTokens = refreshTokens;
+        _clientStore = clientStore;
+        _subjects = subjects;
         _options = options;
         _events = events;
     }
@@ -105,7 +112,7 @@ public sealed class IntrospectionEndpointHandler
             ["exp"] = ToUnixSeconds(stored.ExpiresAt),
             ["jti"] = jti,
         };
-        if (stored.Subject is not null) body["sub"] = stored.Subject;
+        if (stored.Subject is not null) body["sub"] = await PublicSubjectAsync(stored.Subject, stored.ClientId, ct);
         if (long.TryParse(principal.FindFirstValue("iat"), out var iat)) body["iat"] = iat;
         if (audiences.Count > 0) body["aud"] = audiences.Count == 1 ? audiences[0] : audiences;
 
@@ -134,13 +141,19 @@ public sealed class IntrospectionEndpointHandler
             token_type = "refresh_token",
             scope = string.Join(" ", stored.Scopes),
             client_id = stored.ClientId,
-            sub = stored.Subject,
+            sub = await PublicSubjectAsync(stored.Subject, stored.ClientId, ct),
             iss = _options.Value.Issuer.TrimEnd('/'),
             exp = ToUnixSeconds(stored.ExpiresAt),
         });
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
+
+    /// <summary>The subject as the token's client knows it (pairwise when configured).</summary>
+    private async Task<string> PublicSubjectAsync(string localSubject, string clientId, CancellationToken ct) =>
+        await _clientStore.FindClientAsync(clientId, ct) is { } client
+            ? _subjects.Compute(localSubject, client)
+            : localSubject;
 
     private static IResult Inactive() => Results.Json(new { active = false });
 

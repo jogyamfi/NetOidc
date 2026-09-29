@@ -117,7 +117,7 @@ public sealed class RefreshTokenSecurityTests
         var service = app.Services.GetRequiredService<RefreshTokenService>();
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
 
-        var rt = await service.IssueAsync(TestClient("client_secret_basic"), "alice", ["openid"], [], null,
+        var rt = await service.IssueAsync(TestClient("client_secret_basic"), new RefreshTokenContent("alice", ["openid"], []), grantId: null,
             Thumbprint(key), cnfX5tS256: null, CancellationToken.None);
 
         Assert.Equal(HttpStatusCode.OK, (await RefreshAsync(app, rt.Value)).StatusCode);
@@ -131,7 +131,7 @@ public sealed class RefreshTokenSecurityTests
     /// </summary>
     private static async Task<string> IssueBoundTokenAsync(TestWebApp app, ECDsa key) =>
         (await app.Services.GetRequiredService<RefreshTokenService>().IssueAsync(
-            TestClient("none"), "alice", ["openid"], [], null,
+            TestClient("none"), new RefreshTokenContent("alice", ["openid"], []), grantId: null,
             Thumbprint(key), cnfX5tS256: null, CancellationToken.None)).Value;
 
     private static Client TestClient(string authMethod) => new()

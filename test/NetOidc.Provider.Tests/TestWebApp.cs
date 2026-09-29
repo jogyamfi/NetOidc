@@ -52,32 +52,37 @@ internal sealed class TestWebApp : IAsyncDisposable
                 {
                     ClientId = "test-client",
                     ClientSecret = "test-secret",
-                    AllowedGrantTypes = ["authorization_code"],
+                    AllowedGrantTypes = ["authorization_code", "refresh_token"],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = ["https://client.test.example.com/callback"],
                     PostLogoutRedirectUris = ["https://client.test.example.com/logout"],
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
+                    RequireConsent = false,
                 },
                 new Client
                 {
                     ClientId = "implicit-client",
                     ClientSecret = "implicit-secret",
                     AllowedGrantTypes = ["implicit"],
+                    ResponseTypes = ["id_token", "id_token token", "token"],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = ["https://client.test.example.com/callback"],
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
+                    RequireConsent = false,
                 },
                 new Client
                 {
                     ClientId = "hybrid-client",
                     ClientSecret = "hybrid-secret",
-                    AllowedGrantTypes = ["hybrid"],
+                    AllowedGrantTypes = ["authorization_code", "implicit", "refresh_token"],
+                    ResponseTypes = ["code id_token", "code token", "code id_token token"],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = ["https://client.test.example.com/callback"],
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
+                    RequireConsent = false,
                 },
                 new Client
                 {
@@ -88,17 +93,19 @@ internal sealed class TestWebApp : IAsyncDisposable
                     RedirectUris = [],
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
+                    RequireConsent = false,
                 },
                 // Phase 4 PAR client
                 new Client
                 {
                     ClientId = "par-client",
                     ClientSecret = "par-secret",
-                    AllowedGrantTypes = ["authorization_code"],
+                    AllowedGrantTypes = ["authorization_code", "refresh_token"],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = ["https://client.test.example.com/callback"],
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
+                    RequireConsent = false,
                 },
                 // Phase 4 token-exchange client
                 new Client
@@ -107,35 +114,38 @@ internal sealed class TestWebApp : IAsyncDisposable
                     ClientSecret = "exchange-secret",
                     AllowedGrantTypes =
                     [
-                        "authorization_code", "client_credentials",
+                        "authorization_code", "client_credentials", "refresh_token",
                         "urn:ietf:params:oauth:grant-type:token-exchange",
                     ],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = ["https://client.test.example.com/callback"],
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
+                    RequireConsent = false,
                 },
                 // Phase 6 device-flow client
                 new Client
                 {
                     ClientId = "device-client",
                     ClientSecret = "device-secret",
-                    AllowedGrantTypes = ["urn:ietf:params:oauth:grant-type:device_code"],
+                    AllowedGrantTypes = ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = [],
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
+                    RequireConsent = false,
                 },
                 // Phase 6 CIBA client (poll mode)
                 new Client
                 {
                     ClientId = "ciba-client",
                     ClientSecret = "ciba-secret",
-                    AllowedGrantTypes = ["urn:ietf:params:oauth:grant-type:ciba"],
+                    AllowedGrantTypes = ["urn:ietf:params:oauth:grant-type:ciba", "refresh_token"],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = [],
                     TokenEndpointAuthMethod = "client_secret_basic",
                     RequirePkce = false,
+                    RequireConsent = false,
                     CibaDeliveryMode = "poll",
                 },
             ];
@@ -146,13 +156,13 @@ internal sealed class TestWebApp : IAsyncDisposable
                 new Scope { Name = "profile" },
             ];
 
-            opts.FindUserClaims = (sub, scopes, ct) =>
-            {
-                var claims = new Dictionary<string, object> { ["sub"] = sub };
-                if (scopes.Contains("profile"))
-                    claims["name"] = $"Test {sub}";
-                return Task.FromResult<IReadOnlyDictionary<string, object>>(claims);
-            };
+            // Return everything; the provider releases only what scopes / claims requests allow.
+            opts.FindUserClaims = (request, ct) =>
+                Task.FromResult<IReadOnlyDictionary<string, object>>(new Dictionary<string, object>
+                {
+                    ["name"] = $"Test {request.Subject}",
+                    ["email"] = $"{request.Subject}@example.com",
+                });
 
             configure?.Invoke(opts);
         });
@@ -178,11 +188,23 @@ internal sealed class TestWebApp : IAsyncDisposable
         {
             var form = await ctx.Request.ReadFormAsync();
             var sub = form["subject"].ToString();
-            var claims = new[] { new Claim(ClaimTypes.NameIdentifier, sub) };
+            var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, sub) };
+            // Optional: an explicit authentication time and context for auth_time/acr tests.
+            if (!string.IsNullOrEmpty(form["auth_time"])) claims.Add(new Claim("auth_time", form["auth_time"]!));
+            if (!string.IsNullOrEmpty(form["acr"])) claims.Add(new Claim("acr", form["acr"]!));
             var identity = new ClaimsIdentity(
                 claims, CookieAuthenticationDefaults.AuthenticationScheme);
             await ctx.SignInAsync(new ClaimsPrincipal(identity));
             ctx.Response.StatusCode = 204;
+        });
+
+        // Test-only: stands in for a host page that renders an antiforgery token (e.g. the
+        // logout confirmation page), returning the field name and token as JSON.
+        _app.MapGet("/test/antiforgery", (HttpContext ctx,
+            Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery) =>
+        {
+            var tokens = antiforgery.GetAndStoreTokens(ctx);
+            return Results.Json(new { field = tokens.FormFieldName, token = tokens.RequestToken });
         });
 
         _app.MapNetOidc();

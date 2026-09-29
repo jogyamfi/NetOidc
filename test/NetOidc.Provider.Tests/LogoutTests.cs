@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Web;
 using Xunit;
@@ -28,14 +29,37 @@ public sealed class LogoutTests : IAsyncLifetime
     // ── end_session endpoint availability ───────────────────────────────────
 
     [Fact]
-    public async Task EndSession_IsReachable_Returns204WithoutParams()
+    public async Task EndSession_WithoutHint_AsksForConfirmation()
     {
-        // Sign in first so there is a cookie session.
         await SignInAsync("user1");
 
-        var resp = await _app.Client.GetAsync("/connect/end_session");
-        // No post_logout_redirect_uri — should return 204.
+        var resp = await _app.Client.GetAsync("/connect/end_session?state=s");
+
+        // RP-Initiated Logout §2: no valid id_token_hint → the End-User must confirm.
+        Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
+        Assert.StartsWith("/account/logout", resp.Headers.Location!.ToString());
+        Assert.Contains("state=s", resp.Headers.Location!.ToString());
+    }
+
+    [Fact]
+    public async Task EndSession_Confirmed_Returns204WithoutRedirectUri()
+    {
+        await SignInAsync("user1b");
+
+        var resp = await ConfirmLogoutAsync(_app, []);
+
         Assert.Equal(HttpStatusCode.NoContent, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task EndSession_ConfirmationWithoutAntiforgeryToken_IsRejected()
+    {
+        await SignInAsync("user1c");
+
+        var resp = await _app.Client.PostAsync("/connect/end_session",
+            new FormUrlEncodedContent([new("confirm", "true")]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
     [Fact]
@@ -57,10 +81,12 @@ public sealed class LogoutTests : IAsyncLifetime
     {
         await SignInAsync("user2");
 
-        var target = Uri.EscapeDataString("https://client.test.example.com/logout");
-        var state = Uri.EscapeDataString("abc123");
-        var resp = await _app.Client.GetAsync(
-            $"/connect/end_session?client_id=test-client&post_logout_redirect_uri={target}&state={state}");
+        var resp = await ConfirmLogoutAsync(_app,
+        [
+            new("client_id", "test-client"),
+            new("post_logout_redirect_uri", "https://client.test.example.com/logout"),
+            new("state", "abc123"),
+        ]);
 
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
         var location = resp.Headers.Location?.ToString() ?? "";
@@ -73,15 +99,14 @@ public sealed class LogoutTests : IAsyncLifetime
     {
         await SignInAsync("user3");
 
-        var form = new Dictionary<string, string>
-        {
-            ["client_id"] = "test-client",
-            ["post_logout_redirect_uri"] = "https://client.test.example.com/logout",
-        };
-        var resp = await _app.Client.PostAsync(
-            "/connect/end_session", new FormUrlEncodedContent(form));
+        var resp = await ConfirmLogoutAsync(_app,
+        [
+            new("client_id", "test-client"),
+            new("post_logout_redirect_uri", "https://client.test.example.com/logout"),
+        ]);
 
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
+        Assert.Equal("https://client.test.example.com/logout", resp.Headers.Location!.ToString());
     }
 
     // ── P1.1: open-redirect prevention ───────────────────────────────────────
@@ -140,9 +165,12 @@ public sealed class LogoutTests : IAsyncLifetime
             ];
         });
 
-        var target = Uri.EscapeDataString("https://client.test.example.com/logout?x=1");
-        var resp = await app.Client.GetAsync(
-            $"/connect/end_session?client_id=query-logout-client&post_logout_redirect_uri={target}&state=s1");
+        var resp = await ConfirmLogoutAsync(app,
+        [
+            new("client_id", "query-logout-client"),
+            new("post_logout_redirect_uri", "https://client.test.example.com/logout?x=1"),
+            new("state", "s1"),
+        ]);
 
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
         Assert.Equal("https://client.test.example.com/logout?x=1&state=s1",
@@ -265,6 +293,19 @@ public sealed class LogoutTests : IAsyncLifetime
         var resp = await _app.Client.PostAsync("/test/signin",
             new FormUrlEncodedContent([new("subject", subject)]));
         Assert.Equal(HttpStatusCode.NoContent, resp.StatusCode);
+    }
+
+    /// <summary>
+    /// Posts a confirmed logout the way the host's confirmation page would: the original
+    /// parameters plus <c>confirm=true</c> and an antiforgery token.
+    /// </summary>
+    internal static async Task<HttpResponseMessage> ConfirmLogoutAsync(
+        TestWebApp app, List<KeyValuePair<string, string>> parameters)
+    {
+        var csrf = JsonDocument.Parse(await app.Client.GetStringAsync("/test/antiforgery")).RootElement;
+        parameters.Add(new("confirm", "true"));
+        parameters.Add(new(csrf.GetProperty("field").GetString()!, csrf.GetProperty("token").GetString()!));
+        return await app.Client.PostAsync("/connect/end_session", new FormUrlEncodedContent(parameters));
     }
 
     private static string PadBase64(string s)

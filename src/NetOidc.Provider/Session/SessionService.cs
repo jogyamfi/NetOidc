@@ -36,27 +36,28 @@ public sealed class SessionService
     {
         if (!_options.Value.LogoutEnabled) return null;
 
+        // Sliding lifetime: every authorization in the session extends it.
+        var lifetime = TimeSpan.FromSeconds(_options.Value.SessionLifetimeSeconds);
+        var expiresAt = DateTimeOffset.UtcNow + lifetime;
+
         var existingId = context.Request.Cookies[CookieName];
         if (existingId is not null)
         {
             var existing = await _sessionStore.FindAsync(existingId, ct);
             if (existing is not null && existing.Subject == subject)
             {
-                // Add clientId to session if not already present.
-                if (!existing.ClientIds.Contains(clientId))
+                var updated = new OidcSession
                 {
-                    var updated = new OidcSession
-                    {
-                        SessionId = existing.SessionId,
-                        Subject = existing.Subject,
-                        ClientIds = [.. existing.ClientIds, clientId],
-                        CreatedAt = existing.CreatedAt,
-                        ExpiresAt = existing.ExpiresAt,
-                    };
-                    await _sessionStore.StoreAsync(existing.SessionId, updated, ct: ct);
-                    return updated;
-                }
-                return existing;
+                    SessionId = existing.SessionId,
+                    Subject = existing.Subject,
+                    ClientIds = existing.ClientIds.Contains(clientId)
+                        ? existing.ClientIds
+                        : [.. existing.ClientIds, clientId],
+                    CreatedAt = existing.CreatedAt,
+                    ExpiresAt = expiresAt,
+                };
+                await _sessionStore.StoreAsync(existing.SessionId, updated, lifetime, ct);
+                return updated;
             }
         }
 
@@ -66,8 +67,9 @@ public sealed class SessionService
             SessionId = sessionId,
             Subject = subject,
             ClientIds = [clientId],
+            ExpiresAt = expiresAt,
         };
-        await _sessionStore.StoreAsync(sessionId, session, ct: ct);
+        await _sessionStore.StoreAsync(sessionId, session, lifetime, ct);
         context.Response.Cookies.Append(CookieName, sessionId, new CookieOptions
         {
             HttpOnly = true,
@@ -79,6 +81,12 @@ public sealed class SessionService
 
     public Task<OidcSession?> GetSessionAsync(string sessionId, CancellationToken ct) =>
         _sessionStore.FindAsync(sessionId, ct);
+
+    /// <summary>Returns the session identified by the request's session cookie, if any.</summary>
+    public Task<OidcSession?> GetCurrentSessionAsync(HttpContext context, CancellationToken ct) =>
+        context.Request.Cookies[CookieName] is { } id
+            ? _sessionStore.FindAsync(id, ct)
+            : Task.FromResult<OidcSession?>(null);
 
     public Task RemoveSessionAsync(string sessionId, CancellationToken ct) =>
         _sessionStore.RemoveAsync(sessionId, ct);

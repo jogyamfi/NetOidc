@@ -10,7 +10,7 @@ namespace NetOidc.Provider.Configuration;
 public sealed class FapiProfileValidator : IValidateOptions<ProviderOptions>
 {
     private static readonly string[] Fapi1AllowedAuthMethods =
-        ["private_key_jwt", "client_secret_jwt", "tls_client_auth", "none"];
+        ["private_key_jwt", "tls_client_auth", "self_signed_tls_client_auth"];
 
     private static readonly string[] Fapi2AllowedAuthMethods =
         ["private_key_jwt", "tls_client_auth", "self_signed_tls_client_auth"];
@@ -58,7 +58,7 @@ public sealed class FapiProfileValidator : IValidateOptions<ProviderOptions>
                 errors.Add(
                     $"[FAPI 1.0 §5.2.2] client '{client.ClientId}' uses auth method " +
                     $"'{client.TokenEndpointAuthMethod}' which is not allowed " +
-                    "(must be private_key_jwt, client_secret_jwt, tls_client_auth, or none)");
+                    "(must be private_key_jwt, tls_client_auth or self_signed_tls_client_auth)");
         }
     }
 

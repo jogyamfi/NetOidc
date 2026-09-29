@@ -83,10 +83,37 @@ public sealed class ProviderOptions
     /// <summary>Lifetime in seconds of back-channel logout tokens (default 120 s).</summary>
     public int LogoutTokenLifetimeSeconds { get; set; } = 120;
 
+    /// <summary>
+    /// Page that asks the End-User to confirm a logout that did not carry a valid
+    /// <c>id_token_hint</c> (RP-Initiated Logout §2). It receives the original request
+    /// parameters and must POST them back to the end-session endpoint with <c>confirm=true</c>
+    /// and an antiforgery token.
+    /// </summary>
+    public string LogoutConfirmationPath { get; set; } = "/account/logout";
+
+    /// <summary>Sliding lifetime in seconds of an OIDC session (default 14 days).</summary>
+    public int SessionLifetimeSeconds { get; set; } = 14 * 24 * 3600;
+
+    /// <summary>
+    /// When true (and <see cref="LogoutEnabled"/> is true), logout renders iframes to clients'
+    /// <c>frontchannel_logout_uri</c> (OIDC Front-Channel Logout 1.0).
+    /// </summary>
+    public bool FrontChannelLogoutEnabled { get; set; } = false;
+
     // -- Interaction --
 
     /// <summary>Path the provider redirects to when the user is not authenticated.</summary>
     public string LoginPath { get; set; } = "/account/login";
+
+    /// <summary>
+    /// Path the provider redirects to when the End-User must consent. The page receives
+    /// <c>client_id</c>, <c>scope</c> and <c>returnUrl</c>, records consent with
+    /// <see cref="Interaction.ConsentService"/> and then redirects to <c>returnUrl</c>.
+    /// </summary>
+    public string ConsentPath { get; set; } = "/account/consent";
+
+    /// <summary>Lifetime in seconds of a suspended authorization request awaiting login/consent (default 600).</summary>
+    public int InteractionLifetimeSeconds { get; set; } = 600;
 
     // -- Static configuration --
 
@@ -103,6 +130,18 @@ public sealed class ProviderOptions
 
     /// <summary>Issue refresh tokens alongside access tokens for authorization_code grants.</summary>
     public bool IssueRefreshTokens { get; set; } = true;
+
+    /// <summary>
+    /// Rotate refresh tokens on every use (default). When false, confidential clients and
+    /// sender-constrained tokens keep their refresh token; unbound public-client tokens always rotate.
+    /// </summary>
+    public bool RotateRefreshTokens { get; set; } = true;
+
+    /// <summary>
+    /// Accept <c>code_challenge_method=plain</c> (and a missing method, which RFC 7636 treats as
+    /// plain). Off by default: only S256 is accepted.
+    /// </summary>
+    public bool AllowPlainPkce { get; set; } = false;
 
     // -- Subject identifier types (OIDC Core §8) --
 
@@ -134,13 +173,14 @@ public sealed class ProviderOptions
     // -- Claim sourcing --
 
     /// <summary>
-    /// Called by the UserInfo endpoint to load profile claims for a subject.
-    /// The second argument is the list of granted scopes. Default returns only sub.
+    /// Loads End-User claims for the UserInfo endpoint and ID tokens. The request carries the
+    /// local subject and the claim names that may be released; claims outside
+    /// <see cref="Claims.UserClaimsRequest.ClaimNames"/> are dropped. Default returns nothing.
     /// </summary>
-    public Func<string, IReadOnlyList<string>, CancellationToken, Task<IReadOnlyDictionary<string, object>>>
+    public Func<Claims.UserClaimsRequest, CancellationToken, Task<IReadOnlyDictionary<string, object>>>
         FindUserClaims { get; set; } =
-            static (sub, _, _) => Task.FromResult<IReadOnlyDictionary<string, object>>(
-                new Dictionary<string, object> { ["sub"] = sub });
+            static (_, _) => Task.FromResult<IReadOnlyDictionary<string, object>>(
+                new Dictionary<string, object>());
 
     // ── PAR — Pushed Authorization Requests (RFC 9126) ───────────────────────
 
@@ -180,6 +220,12 @@ public sealed class ProviderOptions
 
     /// <summary>When true, the <c>resource</c> parameter is accepted and stored with tokens.</summary>
     public bool ResourceIndicatorsEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Resource indicators (absolute URIs) clients may request (RFC 8707 §2). Requests for any
+    /// other resource fail with <c>invalid_target</c>.
+    /// </summary>
+    public IList<string> AllowedResources { get; set; } = [];
 
     // ── Rich Authorization Requests (RFC 9396) ───────────────────────────────
 
@@ -318,10 +364,16 @@ public sealed class ProviderOptions
     /// <summary>Minimum polling interval in seconds for the CIBA poll mode (default 5 s).</summary>
     public int CibaPollingIntervalSeconds { get; set; } = 5;
 
+    /// <summary>Upper bound in seconds for a client's <c>requested_expiry</c> (default 600).</summary>
+    public int CibaMaxRequestedExpirySeconds { get; set; } = 600;
+
+    /// <summary>Maximum length of a CIBA <c>binding_message</c> (default 64 characters).</summary>
+    public int CibaMaxBindingMessageLength { get; set; } = 64;
+
     /// <summary>
-    /// Hook called after a CIBA request is accepted. The implementation should trigger
-    /// out-of-band authentication and later call the provider's
-    /// <see cref="CompleteCibaRequestAsync"/> method to approve or deny the request.
+    /// Hook called (in the background) after a CIBA request is accepted. The implementation
+    /// starts out-of-band authentication and later calls <see cref="Ciba.ICibaService.CompleteAsync"/>
+    /// to approve or deny the request.
     /// </summary>
     public Func<Abstractions.Models.BackchannelAuthenticationRequest, CancellationToken, Task>?
         ProcessBackchannelAuthenticationRequest { get; set; }

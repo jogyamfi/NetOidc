@@ -40,7 +40,6 @@ public sealed class DiscoveryService
         {
             "authorization_code",
             "implicit",
-            "hybrid",
             "client_credentials",
             "refresh_token",
         };
@@ -67,6 +66,10 @@ public sealed class DiscoveryService
             tokenAuthMethods.Add("self_signed_tls_client_auth");
         }
 
+        // Public clients authenticate with PKCE only; introspection and revocation still
+        // require a credential, so "none" is advertised for the token endpoint only.
+        var tokenEndpointAuthMethods = new List<string>(tokenAuthMethods) { "none" };
+
         return new DiscoveryDocument
         {
             Issuer = issuer,
@@ -89,18 +92,24 @@ public sealed class DiscoveryService
             GrantTypesSupported = grantTypes,
             SubjectTypesSupported = subjectTypes,
             IdTokenSigningAlgValuesSupported = ["RS256"],
-            TokenEndpointAuthMethodsSupported = tokenAuthMethods,
+            TokenEndpointAuthMethodsSupported = tokenEndpointAuthMethods,
             IntrospectionEndpointAuthMethodsSupported = tokenAuthMethods,
             RevocationEndpointAuthMethodsSupported = tokenAuthMethods,
-            CodeChallengeMethodsSupported = ["S256", "plain"],
+            CodeChallengeMethodsSupported = opts.AllowPlainPkce ? ["S256", "plain"] : ["S256"],
             ScopesSupported = opts.Scopes.Select(s => s.Name).ToList(),
             ResponseModesSupported = responseModes,
             ClaimsParameterSupported = true,
+            ClaimsSupported = ["sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "acr", "amr", "azp", "sid",
+                .. Claims.ClaimsEngine.ClaimsForScopes(opts.Scopes.Select(s => s.Name), opts.Scopes).Order()],
+            PromptValuesSupported = ["none", "login", "consent", "select_account"],
+            RequestUriParameterSupported = false,
             AuthorizationResponseIssParameterSupported = opts.IssuerIdentificationEnabled,
             EndSessionEndpoint = opts.LogoutEnabled ? Abs(opts.EndSessionEndpoint) : null,
             RegistrationEndpoint = opts.DcrEnabled ? Abs(opts.RegistrationEndpoint) : null,
             BackChannelLogoutSupported = opts.BackChannelLogoutEnabled,
             BackChannelLogoutSessionSupported = opts.BackChannelLogoutEnabled,
+            FrontChannelLogoutSupported = opts.LogoutEnabled && opts.FrontChannelLogoutEnabled,
+            FrontChannelLogoutSessionSupported = opts.LogoutEnabled && opts.FrontChannelLogoutEnabled,
 
             // ── Phase 4 ──────────────────────────────────────────────────────
             PushedAuthorizationRequestEndpoint = opts.PushedAuthorizationEnabled
@@ -142,7 +151,7 @@ public sealed class DiscoveryService
             BackchannelAuthenticationEndpoint = opts.CibaEnabled
                 ? Abs(opts.BackchannelAuthenticationEndpoint) : null,
             BackchannelTokenDeliveryModesSupported = opts.CibaEnabled
-                ? ["poll"] : null,
+                ? ["poll", "ping", "push"] : null,
             BackchannelAuthenticationRequestSigningAlgValuesSupported = opts.CibaEnabled
                 ? ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
                    "ES256", "ES384", "ES512"]

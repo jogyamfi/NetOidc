@@ -62,6 +62,7 @@ public sealed class ServiceRegistrationTests
                     AllowedGrantTypes = ["authorization_code"],
                     AllowedScopes = ["openid"],
                     RedirectUris = ["https://app.example.com/cb"],
+                    RequireConsent = false,
                 }
             ];
         });

@@ -9,7 +9,30 @@ public sealed class Client
 
     public IReadOnlyList<string> RedirectUris { get; init; } = [];
 
+    /// <summary>
+    /// RFC 7591 <c>grant_types</c>: <c>authorization_code</c>, <c>implicit</c>,
+    /// <c>refresh_token</c>, <c>client_credentials</c>, … A refresh token is only issued
+    /// when <c>refresh_token</c> is listed.
+    /// </summary>
     public IReadOnlyList<string> AllowedGrantTypes { get; init; } = [];
+
+    /// <summary>
+    /// RFC 7591 <c>response_types</c> this client may request at the authorization endpoint
+    /// (e.g. <c>code</c>, <c>code id_token</c>). Token order within a value is irrelevant.
+    /// </summary>
+    public IReadOnlyList<string> ResponseTypes { get; init; } = ["code"];
+
+    /// <summary>
+    /// When true (the default), the End-User must consent before this client receives tokens,
+    /// and consent is remembered per subject. Set to false only for first-party clients.
+    /// </summary>
+    public bool RequireConsent { get; init; } = true;
+
+    /// <summary>
+    /// Resource indicators (RFC 8707) this client may request. Empty means any resource in
+    /// <c>ProviderOptions.AllowedResources</c>.
+    /// </summary>
+    public IReadOnlyList<string> AllowedResources { get; init; } = [];
 
     public IReadOnlyList<string> AllowedScopes { get; init; } = [];
 
@@ -55,6 +78,12 @@ public sealed class Client
 
     /// <summary>Whether the OP must include a <c>sid</c> claim in logout tokens.</summary>
     public bool BackChannelLogoutSessionRequired { get; init; } = false;
+
+    /// <summary>OIDC Front-Channel Logout 1.0 <c>frontchannel_logout_uri</c>.</summary>
+    public string? FrontChannelLogoutUri { get; init; }
+
+    /// <summary>Whether <c>iss</c> and <c>sid</c> are appended to <see cref="FrontChannelLogoutUri"/>.</summary>
+    public bool FrontChannelLogoutSessionRequired { get; init; } = false;
 
     /// <summary>Allowed URIs to redirect to after RP-initiated logout.</summary>
     public IReadOnlyList<string> PostLogoutRedirectUris { get; init; } = [];
@@ -136,4 +165,10 @@ public sealed class Client
     /// the push notification token sent to the client notification endpoint.
     /// </summary>
     public string? CibaJwksJson { get; init; }
+
+    /// <summary>
+    /// CIBA <c>backchannel_user_code_parameter</c>: when true the client may (and the OP
+    /// passes on) a <c>user_code</c> with authentication requests.
+    /// </summary>
+    public bool BackchannelUserCodeParameter { get; init; }
 }

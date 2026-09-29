@@ -56,6 +56,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IAdapter<RefreshToken>, InMemoryAdapter<RefreshToken>>();
         services.TryAddSingleton<IAdapter<OidcSession>, InMemoryAdapter<OidcSession>>();
         services.TryAddSingleton<IAdapter<PushedAuthorizationRequest>, InMemoryAdapter<PushedAuthorizationRequest>>();
+        services.TryAddSingleton<IAdapter<Consent>, InMemoryAdapter<Consent>>();
+        services.TryAddSingleton<IAdapter<PendingInteraction>, InMemoryAdapter<PendingInteraction>>();
 
         // Phase 6 storage adapters
         services.TryAddSingleton<IAdapter<DeviceCode>, InMemoryAdapter<DeviceCode>>();
@@ -82,6 +84,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<DiscoveryService>();
 
         // Interaction
+        services.TryAddSingleton<ConsentService>();
         services.TryAddSingleton<IInteractionService, DefaultInteractionService>();
 
         // Claims
@@ -103,8 +106,11 @@ public static class ServiceCollectionExtensions
             });
         services.TryAddSingleton<BackChannelLogoutService>();
 
-        // Refresh-token rotation, reuse detection and binding
+        // Grants, refresh-token rotation and the shared token issuer
+        services.TryAddSingleton<GrantService>();
         services.TryAddSingleton<RefreshTokenService>();
+        services.TryAddSingleton<UserClaimsService>();
+        services.TryAddSingleton<TokenIssuanceService>();
 
         // Client authentication (all token-endpoint auth methods, mTLS certificate sourcing)
         services.TryAddSingleton<ClientAuthenticator>();
@@ -130,6 +136,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<DeviceAuthorizationEndpointHandler>();
         services.TryAddSingleton<DeviceVerificationEndpointHandler>();
         services.TryAddSingleton<CibaEndpointHandler>();
+        services.TryAddSingleton<ICibaService, CibaService>();
 
         // Phase 8 — Federation
         services.TryAddSingleton<FederationService>();

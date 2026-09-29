@@ -24,9 +24,14 @@ public sealed class TokenFactory
     /// <param name="subject">Resource owner subject, or <c>null</c> for client_credentials grants.</param>
     /// <param name="cnfJwkThumbprint">DPoP JWK thumbprint for <c>cnf.jkt</c> (RFC 9449), or <c>null</c>.</param>
     /// <param name="cnfX5tS256">mTLS certificate thumbprint for <c>cnf.x5t#S256</c> (RFC 8705), or <c>null</c>.</param>
+    /// <param name="resources">
+    /// Resource indicators (RFC 8707) the token is for. They are added to <c>aud</c> alongside
+    /// the issuer, which keeps the token usable at the provider's own UserInfo endpoint.
+    /// </param>
     public string CreateAccessToken(
         string tokenId, string? subject, string clientId, IReadOnlyList<string> scopes,
-        string? cnfJwkThumbprint = null, string? cnfX5tS256 = null)
+        string? cnfJwkThumbprint = null, string? cnfX5tS256 = null,
+        IReadOnlyList<string>? resources = null)
     {
         var opts = _options.Value;
         var now = DateTime.UtcNow;
@@ -37,6 +42,8 @@ public sealed class TokenFactory
             ["scope"] = string.Join(" ", scopes),
         };
         if (subject is not null) claims["sub"] = subject;
+        if (resources is { Count: > 0 })
+            claims["aud"] = new[] { opts.Issuer }.Concat(resources).Distinct(StringComparer.Ordinal).ToArray();
 
         // cnf claim (RFC 7800): bind the token to a proof-of-possession key or certificate.
         if (cnfJwkThumbprint is not null)
@@ -47,7 +54,7 @@ public sealed class TokenFactory
         var descriptor = new SecurityTokenDescriptor
         {
             Issuer = opts.Issuer,
-            Audience = opts.Issuer,
+            Audience = claims.ContainsKey("aud") ? null : opts.Issuer,
             IssuedAt = now,
             Expires = now.AddSeconds(opts.AccessTokenLifetimeSeconds),
             SigningCredentials = _keyProvider.GetSigningCredentials(),
@@ -58,6 +65,8 @@ public sealed class TokenFactory
     }
 
     /// <summary>Issues an ID token per OIDC Core spec, with optional encryption for the client.</summary>
+    /// <param name="accessToken">When set, its <c>at_hash</c> is included (OIDC Core §3.3.2.11).</param>
+    /// <param name="code">When set, its <c>c_hash</c> is included (OIDC Core §3.3.2.11).</param>
     public string CreateIdToken(
         string subject,
         string clientId,
@@ -67,22 +76,25 @@ public sealed class TokenFactory
         IReadOnlyList<string>? amr = null,
         IReadOnlyDictionary<string, object>? additionalClaims = null,
         string? sid = null,
-        Client? client = null)
+        Client? client = null,
+        string? accessToken = null,
+        string? code = null)
     {
         var opts = _options.Value;
         var now = DateTime.UtcNow;
-        var claims = new Dictionary<string, object>
-        {
-            ["sub"] = subject,
-            ["auth_time"] = authTime.ToUnixTimeSeconds(),
-        };
+        var claims = new Dictionary<string, object>();
+        // User claims first so protocol claims below always win.
+        if (additionalClaims is not null)
+            foreach (var kv in additionalClaims)
+                claims[kv.Key] = kv.Value;
+        claims["sub"] = subject;
+        claims["auth_time"] = authTime.ToUnixTimeSeconds();
         if (nonce is not null) claims["nonce"] = nonce;
         if (acr is not null) claims["acr"] = acr;
         if (amr is not null && amr.Count > 0) claims["amr"] = amr;
         if (sid is not null) claims["sid"] = sid;
-        if (additionalClaims is not null)
-            foreach (var kv in additionalClaims)
-                claims[kv.Key] = kv.Value;
+        if (accessToken is not null) claims["at_hash"] = HalfHash(accessToken);
+        if (code is not null) claims["c_hash"] = HalfHash(code);
 
         var descriptor = new SecurityTokenDescriptor
         {
@@ -133,6 +145,16 @@ public sealed class TokenFactory
         return _handler.CreateToken(descriptor);
     }
 
+    /// <summary>
+    /// <c>at_hash</c> / <c>c_hash</c> value: base64url of the left half of the hash of the ASCII
+    /// value, using the hash of the ID token's signing algorithm (RS256 → SHA-256).
+    /// </summary>
+    public static string HalfHash(string value)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(value));
+        return Base64UrlEncoder.Encode(hash.AsSpan(0, hash.Length / 2).ToArray());
+    }
+
     private static EncryptingCredentials? ResolveClientEncryptingCredentials(
         string jwksJson, string alg, string enc)
     {
@@ -165,7 +187,8 @@ public sealed class TokenFactory
         // "events" claim must be { "http://schemas.openid.net/event/backchannel-logout": {} }
         var events = new Dictionary<string, object>
         {
-            ["http://schemas.openid.net/event/backchannel-logout"] = new { },
+            // An empty JSON object; anonymous types cannot be serialized into JWT claims.
+            ["http://schemas.openid.net/event/backchannel-logout"] = new Dictionary<string, object>(),
         };
         var claims = new Dictionary<string, object>
         {
@@ -182,6 +205,8 @@ public sealed class TokenFactory
             IssuedAt = now,
             Expires = now.AddSeconds(lifetimeSeconds),
             SigningCredentials = _keyProvider.GetSigningCredentials(),
+            // OIDC Back-Channel Logout §2.4: explicit typing prevents cross-JWT confusion.
+            TokenType = "logout+jwt",
             Claims = claims,
         };
         return _handler.CreateToken(descriptor);

@@ -67,9 +67,9 @@ public sealed class ClientAuthenticator
                 ("private_key_jwt" or "tls_client_auth" or "self_signed_tls_client_auth"))
             return null;
 
-        // FAPI 1.0 Advanced: client_secret_basic and client_secret_post are not allowed (§5.2.2).
-        if (opts.FapiProfile == FapiProfile.Fapi1Advanced &&
-            client.TokenEndpointAuthMethod is "client_secret_basic" or "client_secret_post")
+        // FAPI 1.0 Advanced §5.2.2 (final): confidential clients using private_key_jwt or mTLS only.
+        if (opts.FapiProfile == FapiProfile.Fapi1Advanced && client.TokenEndpointAuthMethod is not
+                ("private_key_jwt" or "tls_client_auth" or "self_signed_tls_client_auth"))
             return null;
 
         return client;
@@ -125,10 +125,17 @@ public sealed class ClientAuthenticator
                 ? client : null;
         }
 
+        var identified = await _clientStore.FindClientAsync(formClientId, ct);
+
+        // ── none: public clients identify themselves only (RFC 6749 §2.1). Their tokens are
+        //    protected by PKCE and, where used, DPoP binding instead of a credential.
+        if (identified?.TokenEndpointAuthMethod == "none")
+            return identified;
+
         // ── tls_client_auth / self_signed_tls_client_auth ───────────────────
         if (opts.MtlsEnabled)
         {
-            var client = await _clientStore.FindClientAsync(formClientId, ct);
+            var client = identified;
             if (client?.TokenEndpointAuthMethod is not ("tls_client_auth" or "self_signed_tls_client_auth"))
                 return null;
 

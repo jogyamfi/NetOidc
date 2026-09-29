@@ -36,4 +36,18 @@ public sealed class RefreshToken
 
     /// <summary>Client certificate thumbprint the token is bound to (RFC 8705 §4), or <c>null</c>.</summary>
     public string? CnfX5tS256 { get; init; }
+
+    // ── Authentication context (for ID tokens issued on refresh, OIDC Core §12.2) ──
+
+    /// <summary>When the End-User originally authenticated.</summary>
+    public DateTimeOffset? AuthTime { get; init; }
+
+    public string? Acr { get; init; }
+
+    public IReadOnlyList<string>? Amr { get; init; }
+
+    public string? SessionId { get; init; }
+
+    /// <summary>Raw JSON of the OIDC <c>claims</c> request carried to refreshed tokens.</summary>
+    public string? ClaimsRequest { get; init; }
 }

@@ -7,12 +7,23 @@ namespace NetOidc.Provider.Authorization;
 internal static class PkceValidator
 {
     /// <summary>
-    /// Returns <c>true</c> when <paramref name="codeVerifier"/> satisfies
+    /// Returns <c>true</c> when <paramref name="value"/> is 43–128 characters from the unreserved
+    /// set <c>[A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~"</c> (RFC 7636 §4.1, §4.2).
+    /// </summary>
+    public static bool IsWellFormed(string value) =>
+        value.Length is >= 43 and <= 128 &&
+        value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '.' or '_' or '~');
+
+    /// <summary>
+    /// Returns <c>true</c> when <paramref name="codeVerifier"/> is well formed and satisfies
     /// <paramref name="codeChallenge"/> for the given <paramref name="method"/>.
     /// </summary>
     public static bool Validate(string codeVerifier, string codeChallenge, string method)
     {
-        if (method.Equals("S256", StringComparison.OrdinalIgnoreCase))
+        if (!IsWellFormed(codeVerifier))
+            return false;
+
+        if (method.Equals("S256", StringComparison.Ordinal))
         {
             var hash = SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(codeVerifier));
             var expected = Base64UrlEncoder.Encode(hash);
