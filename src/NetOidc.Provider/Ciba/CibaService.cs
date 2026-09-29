@@ -43,6 +43,7 @@ public sealed class CibaService : ICibaService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptions<ProviderOptions> _options;
     private readonly ILogger<CibaService> _logger;
+    private readonly Abstractions.Events.IProviderEventSink _events;
 
     public CibaService(
         IAdapter<BackchannelAuthenticationRequest> requests,
@@ -50,8 +51,10 @@ public sealed class CibaService : ICibaService
         TokenIssuanceService issuer,
         IHttpClientFactory httpClientFactory,
         IOptions<ProviderOptions> options,
-        ILogger<CibaService> logger)
+        ILogger<CibaService> logger,
+        Abstractions.Events.IProviderEventSink events)
     {
+        _events = events;
         _requests = requests;
         _clientStore = clientStore;
         _issuer = issuer;
@@ -93,6 +96,10 @@ public sealed class CibaService : ICibaService
             request.Acr = acr;
         }
 
+        Diagnostics.Log.AuthorizationDecision(_logger, "ciba", client.ClientId, approve ? "approved" : "denied");
+        await _events.AuthorizationDecisionAsync(new Abstractions.Events.AuthorizationDecisionEvent(
+            client.ClientId, request.Subject, "ciba", approve, DateTimeOffset.UtcNow), ct);
+
         var remaining = request.ExpiresAt - DateTimeOffset.UtcNow;
         switch (request.DeliveryMode)
         {
@@ -132,7 +139,8 @@ public sealed class CibaService : ICibaService
 
         var extra = new Dictionary<string, object> { [AuthReqIdClaim] = request.AuthReqId };
         if (issued.RefreshToken is not null)
-            extra["rt_hash"] = TokenFactory.HalfHash(issued.RefreshToken);
+            extra["rt_hash"] = TokenFactory.HalfHash(issued.RefreshToken,
+                client.IdTokenSignedResponseAlg ?? _options.Value.DefaultSigningAlgorithm);
         var idToken = request.GrantedScopes.Contains("openid")
             ? await _issuer.CreateIdTokenAsync(client, request.Subject!, request.GrantedScopes,
                 new IdTokenParameters(request.AuthTime ?? request.CreatedAt, Acr: request.Acr, ExtraClaims: extra),

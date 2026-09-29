@@ -25,6 +25,8 @@ public sealed class UserInfoEndpointHandler
     private readonly IClientStore _clientStore;
     private readonly UserClaimsService _userClaims;
     private readonly SubjectIdentifierService _subjects;
+    private readonly DPoPNonceService _dpopNonces;
+    private readonly Microsoft.Extensions.Logging.ILogger<UserInfoEndpointHandler> _logger;
 
     public UserInfoEndpointHandler(
         AccessTokenService accessTokens,
@@ -34,8 +36,12 @@ public sealed class UserInfoEndpointHandler
         IProviderEventSink events,
         IClientStore clientStore,
         UserClaimsService userClaims,
-        SubjectIdentifierService subjects)
+        SubjectIdentifierService subjects,
+        DPoPNonceService dpopNonces,
+        Microsoft.Extensions.Logging.ILogger<UserInfoEndpointHandler> logger)
     {
+        _logger = logger;
+        _dpopNonces = dpopNonces;
         _clientStore = clientStore;
         _userClaims = userClaims;
         _subjects = subjects;
@@ -57,7 +63,7 @@ public sealed class UserInfoEndpointHandler
         var live = await _accessTokens.ValidateAsync(token, ct);
         if (live is null)
             return Challenge(context, scheme!, "invalid_token", "access token is invalid, expired or revoked", 401);
-        var (principal, record) = live;
+        var record = live.Record;
 
         // ── Sender constraint (RFC 9449 §7, RFC 8705 §3) ─────────────────────
         if (record.CnfJwkThumbprint is not null)
@@ -66,14 +72,23 @@ public sealed class UserInfoEndpointHandler
             if (scheme != "DPoP")
                 return Challenge(context, "DPoP", "invalid_token", "DPoP-bound token must use the DPoP scheme", 401);
 
-            var proofThumbprint = await _dpopValidator.ValidateProofAsync(
+            var proof = await _dpopValidator.ValidateAsync(
                 context.Request.Headers["DPoP"].ToString(),
                 context.Request.Method,
                 opts.Issuer.TrimEnd('/') + opts.UserInfoEndpoint,
                 accessToken: token,
                 clockSkewSeconds: opts.DPoPProofLifetimeSeconds);
-            if (proofThumbprint is null || proofThumbprint != record.CnfJwkThumbprint)
+            if (proof is null || proof.Thumbprint != record.CnfJwkThumbprint)
                 return Challenge(context, "DPoP", "invalid_dpop_proof", "DPoP proof is missing or invalid", 401);
+
+            // RFC 9449 §9: resource-server nonce challenge.
+            if (_dpopNonces.IsRequired)
+            {
+                context.Response.Headers["DPoP-Nonce"] = _dpopNonces.Issue();
+                if (!_dpopNonces.IsValid(proof.Nonce))
+                    return Challenge(context, "DPoP", "use_dpop_nonce",
+                        "the DPoP proof must include the server-provided nonce", 401);
+            }
         }
         else if (scheme == "DPoP")
         {
@@ -127,6 +142,8 @@ public sealed class UserInfoEndpointHandler
         HttpContext context, string scheme, string? error, string description, int status, string? scope = null)
     {
         var parts = new List<string> { "realm=\"NetOidc\"" };
+        if (error is not null)
+            Diagnostics.Log.UserInfoRejected(_logger, error);
         if (error is not null)
         {
             parts.Add($"error=\"{error}\"");

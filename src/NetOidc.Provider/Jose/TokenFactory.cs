@@ -10,13 +10,13 @@ namespace NetOidc.Provider.Jose;
 /// <summary>Creates and validates JWT access tokens and ID tokens.</summary>
 public sealed class TokenFactory
 {
-    private readonly SigningKeyProvider _keyProvider;
+    private readonly KeyRing _keys;
     private readonly IOptions<ProviderOptions> _options;
     private readonly JsonWebTokenHandler _handler = new();
 
-    public TokenFactory(SigningKeyProvider keyProvider, IOptions<ProviderOptions> options)
+    public TokenFactory(KeyRing keys, IOptions<ProviderOptions> options)
     {
-        _keyProvider = keyProvider;
+        _keys = keys;
         _options = options;
     }
 
@@ -57,7 +57,7 @@ public sealed class TokenFactory
             Audience = claims.ContainsKey("aud") ? null : opts.Issuer,
             IssuedAt = now,
             Expires = now.AddSeconds(opts.AccessTokenLifetimeSeconds),
-            SigningCredentials = _keyProvider.GetSigningCredentials(),
+            SigningCredentials = _keys.GetSigningCredentials(),
             TokenType = "at+JWT",
             Claims = claims,
         };
@@ -80,6 +80,8 @@ public sealed class TokenFactory
         string? accessToken = null,
         string? code = null)
     {
+        // The client's registered id_token_signed_response_alg, else the provider default.
+        var credentials = _keys.GetSigningCredentials(client?.IdTokenSignedResponseAlg);
         var opts = _options.Value;
         var now = DateTime.UtcNow;
         var claims = new Dictionary<string, object>();
@@ -93,8 +95,8 @@ public sealed class TokenFactory
         if (acr is not null) claims["acr"] = acr;
         if (amr is not null && amr.Count > 0) claims["amr"] = amr;
         if (sid is not null) claims["sid"] = sid;
-        if (accessToken is not null) claims["at_hash"] = HalfHash(accessToken);
-        if (code is not null) claims["c_hash"] = HalfHash(code);
+        if (accessToken is not null) claims["at_hash"] = HalfHash(accessToken, credentials.Algorithm);
+        if (code is not null) claims["c_hash"] = HalfHash(code, credentials.Algorithm);
 
         var descriptor = new SecurityTokenDescriptor
         {
@@ -102,7 +104,7 @@ public sealed class TokenFactory
             Audience = clientId,
             IssuedAt = now,
             Expires = now.AddSeconds(opts.IdTokenLifetimeSeconds),
-            SigningCredentials = _keyProvider.GetSigningCredentials(),
+            SigningCredentials = credentials,
             Claims = claims,
         };
 
@@ -121,7 +123,8 @@ public sealed class TokenFactory
     }
 
     /// <summary>Creates a JARM JWT wrapping authorization response parameters.</summary>
-    public string CreateJarmToken(string clientId, IDictionary<string, string> responseParams)
+    /// <param name="algorithm">The client's <c>authorization_signed_response_alg</c>, or <c>null</c> for the default.</param>
+    public string CreateJarmToken(string clientId, IDictionary<string, string> responseParams, string? algorithm = null)
     {
         var opts = _options.Value;
         var now = DateTime.UtcNow;
@@ -139,7 +142,7 @@ public sealed class TokenFactory
             Audience = clientId,
             IssuedAt = now,
             Expires = now.AddMinutes(10),
-            SigningCredentials = _keyProvider.GetSigningCredentials(),
+            SigningCredentials = _keys.GetSigningCredentials(algorithm),
             Claims = claims,
         };
         return _handler.CreateToken(descriptor);
@@ -147,11 +150,11 @@ public sealed class TokenFactory
 
     /// <summary>
     /// <c>at_hash</c> / <c>c_hash</c> value: base64url of the left half of the hash of the ASCII
-    /// value, using the hash of the ID token's signing algorithm (RS256 → SHA-256).
+    /// value, using the hash of the ID token's signing algorithm (e.g. ES384 → SHA-384).
     /// </summary>
-    public static string HalfHash(string value)
+    public static string HalfHash(string value, string algorithm = "RS256")
     {
-        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(value));
+        var hash = KeyRing.HashFor(algorithm, System.Text.Encoding.ASCII.GetBytes(value));
         return Base64UrlEncoder.Encode(hash.AsSpan(0, hash.Length / 2).ToArray());
     }
 
@@ -204,7 +207,7 @@ public sealed class TokenFactory
             Audience = clientId,
             IssuedAt = now,
             Expires = now.AddSeconds(lifetimeSeconds),
-            SigningCredentials = _keyProvider.GetSigningCredentials(),
+            SigningCredentials = _keys.GetSigningCredentials(),
             // OIDC Back-Channel Logout §2.4: explicit typing prevents cross-JWT confusion.
             TokenType = "logout+jwt",
             Claims = claims,
@@ -223,7 +226,7 @@ public sealed class TokenFactory
         var result = await _handler.ValidateTokenAsync(token, new TokenValidationParameters
         {
             ValidIssuer = opts.Issuer,
-            IssuerSigningKey = _keyProvider.GetValidationKey(),
+            IssuerSigningKeys = _keys.GetValidationKeys(),
             ValidateAudience = false,   // audience is the client_id — we don't restrict here
             ValidateLifetime = false,   // hints may be expired
         });
@@ -242,7 +245,7 @@ public sealed class TokenFactory
         var result = await _handler.ValidateTokenAsync(token, new TokenValidationParameters
         {
             ValidIssuer = opts.Issuer,
-            IssuerSigningKey = _keyProvider.GetValidationKey(),
+            IssuerSigningKeys = _keys.GetValidationKeys(),
             ValidateAudience = false,   // the caller compares aud/azp with its policy
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(5),
@@ -262,7 +265,7 @@ public sealed class TokenFactory
         {
             ValidIssuer = opts.Issuer,
             ValidAudience = opts.Issuer,
-            IssuerSigningKey = _keyProvider.GetValidationKey(),
+            IssuerSigningKeys = _keys.GetValidationKeys(),
             ValidateLifetime = true,
             ValidTypes = ["at+JWT"],
             ClockSkew = TimeSpan.FromSeconds(5),

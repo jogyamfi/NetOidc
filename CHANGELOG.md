@@ -5,8 +5,21 @@ changes are allowed between minor versions and are listed explicitly.
 
 ## [Unreleased]
 
-Security remediation and specification conformance, Phases 1–3
+Security remediation, specification conformance and operability, Phases 1–4
 (see [docs/REMEDIATION_PLAN.md](docs/REMEDIATION_PLAN.md)).
+
+### Operability — Phase 4
+
+- Configurable, rotatable keys (`AddSigningKey`, `AddSigningCertificate`, `AddEncryptionKey`,
+  `UseKeyStore<T>()` for vault/HSM/KMS). All published keys verify; future keys are pre-published;
+  expired keys retire. RS/PS/ES algorithms, per-client ID token and JARM algorithms.
+- A Production host refuses to start with generated keys; key algorithms and types are validated.
+- Structured logging across all endpoints (no tokens or secrets) and new failure/lifecycle events.
+- DPoP server nonces (RFC 9449 §8), shareable across instances; VCI nonces via `IAdapter<CredentialNonce>`.
+- Startup validation of the whole `ProviderOptions` graph (issuer, lifetimes, paths, feature
+  prerequisites, static clients).
+- Opaque access tokens (`AccessTokenFormat`), stored by hash.
+- Tracing, metrics and a key health check (`NetOidc.Provider`, `AddNetOidcKeys()`).
 
 ### Conformance — Phase 3
 
@@ -125,8 +138,26 @@ Security remediation and specification conformance, Phases 1–3
 - Phase 3: `RefreshTokenService` API (`IssueAsync(Client, RefreshTokenContent, …)`, `RedeemAsync`),
   `SubjectIdentifierService`, CIBA and device models changed; most endpoint handler constructors changed.
 
+- Phase 4: `SigningKeyProvider` and `EncryptionKeyProvider` are replaced by `IKeyStore` and `KeyRing`;
+  `TokenFactory`, `RequestObjectValidator`, `DiscoveryService` and `FederationService` take `KeyRing`.
+- Phase 4: Production hosts must configure keys; invalid options (e.g. an http issuer outside
+  Development, `CibaEnabled` without its hook, `VciEnabled` without `IssueCredential`, clients
+  without the credentials their auth method needs) fail at startup.
+- Phase 4: `VciService` is async and stores nonces through `IAdapter<CredentialNonce>`.
+- Phase 4: `AccessTokenService.ValidatedAccessToken.Principal` is null for opaque tokens; the
+  introspection response is built from the stored record.
+- Phase 4: `ClientAuthenticator`, `TokenIssuanceService`, `CibaService` and most endpoint handlers
+  take additional constructor dependencies (logger, event sink, nonce service).
+
 ### Added
 
+- Phase 4: `IKeyStore`, `ConfiguredKeyStore`, `KeyRing`, `ProviderKey`, `DPoPNonceService`,
+  `NetOidcTelemetry`, `KeyHealthCheck`/`AddNetOidcKeys()`, `CredentialNonce`; events
+  `ClientAuthenticationFailed`, `TokenRequestFailed`, `AuthorizationFailed`, `LoggedOut`,
+  `AuthorizationDecision`, `ClientRegistrationChanged`.
+- Phase 4 `ProviderOptions`: `Keys`, `DefaultSigningAlgorithm`, `AccessTokenFormat`,
+  `DPoPRequireNonce`, `DPoPNonceLifetimeSeconds`, `DPoPNonceSecret`; `Client.IdTokenSignedResponseAlg`,
+  `Client.AccessTokenFormat`; `AccessToken.IssuedAt`.
 - Phase 3: `TokenIssuanceService`, `GrantService`, `ConsentService`, `UserClaimsService`,
   `ICibaService`/`CibaService`, `ResourceIndicators`; models `Consent`, `PendingInteraction`.
 - Phase 3 `ProviderOptions`: `ConsentPath`, `InteractionLifetimeSeconds`, `RotateRefreshTokens`,

@@ -28,13 +28,16 @@ public sealed class ParEndpointHandler
     private readonly ClientAuthenticator _clientAuthenticator;
     private readonly IAdapter<PushedAuthorizationRequest> _parStore;
     private readonly RequestObjectValidator _requestObjectValidator;
+    private readonly Microsoft.Extensions.Logging.ILogger<ParEndpointHandler> _logger;
 
     public ParEndpointHandler(
         IOptions<ProviderOptions> options,
         ClientAuthenticator clientAuthenticator,
         IAdapter<PushedAuthorizationRequest> parStore,
-        RequestObjectValidator requestObjectValidator)
+        RequestObjectValidator requestObjectValidator,
+        Microsoft.Extensions.Logging.ILogger<ParEndpointHandler> logger)
     {
+        _logger = logger;
         _options = options;
         _clientAuthenticator = clientAuthenticator;
         _parStore = parStore;
@@ -149,6 +152,8 @@ public sealed class ParEndpointHandler
         await _parStore.StoreAsync(
             requestUri, par,
             TimeSpan.FromSeconds(opts.PushedAuthorizationLifetimeSeconds), ct);
+
+        Diagnostics.Log.PushedAuthorizationStored(_logger, client.ClientId);
 
         return Results.Json(
             new { request_uri = requestUri, expires_in = opts.PushedAuthorizationLifetimeSeconds },

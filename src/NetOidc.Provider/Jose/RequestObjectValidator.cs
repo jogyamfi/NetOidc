@@ -13,13 +13,13 @@ namespace NetOidc.Provider.Jose;
 public sealed class RequestObjectValidator
 {
     private readonly JsonWebTokenHandler _handler = new();
-    private readonly EncryptionKeyProvider _encryptionKeyProvider;
+    private readonly KeyRing _keys;
     private readonly ILogger<RequestObjectValidator> _logger;
 
-    public RequestObjectValidator(EncryptionKeyProvider encryptionKeyProvider, ILogger<RequestObjectValidator> logger)
+    public RequestObjectValidator(KeyRing keys, ILogger<RequestObjectValidator> logger)
     {
         _logger = logger;
-        _encryptionKeyProvider = encryptionKeyProvider;
+        _keys = keys;
     }
 
     /// <summary>
@@ -45,7 +45,7 @@ public sealed class RequestObjectValidator
                     ValidateIssuer = false,
                     ValidateAudience = false,
                     ValidateSignatureLast = false,
-                    TokenDecryptionKey = _encryptionKeyProvider.GetDecryptionKey(),
+                    TokenDecryptionKeys = _keys.GetDecryptionKeys(),
                     // Do not validate signature — inner JWS will be validated below
                     RequireSignedTokens = false,
                 });

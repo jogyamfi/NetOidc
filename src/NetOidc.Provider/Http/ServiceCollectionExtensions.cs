@@ -58,6 +58,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IAdapter<PushedAuthorizationRequest>, InMemoryAdapter<PushedAuthorizationRequest>>();
         services.TryAddSingleton<IAdapter<Consent>, InMemoryAdapter<Consent>>();
         services.TryAddSingleton<IAdapter<PendingInteraction>, InMemoryAdapter<PendingInteraction>>();
+        services.TryAddSingleton<IAdapter<CredentialNonce>, InMemoryAdapter<CredentialNonce>>();
 
         // Phase 6 storage adapters
         services.TryAddSingleton<IAdapter<DeviceCode>, InMemoryAdapter<DeviceCode>>();
@@ -72,13 +73,17 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IDynamicClientStore>(sp => sp.GetRequiredService<InMemoryDynamicClientStore>());
 
         // JOSE
-        services.TryAddSingleton<SigningKeyProvider>();
-        services.TryAddSingleton<EncryptionKeyProvider>();
+        // Keys: configured (or, in development, generated) via IKeyStore; startup check refuses
+        // generated keys in Production.
+        services.TryAddSingleton<IKeyStore, ConfiguredKeyStore>();
+        services.TryAddSingleton<KeyRing>();
+        services.AddHostedService<KeyRingStartupCheck>();
         services.TryAddSingleton<TokenFactory>();
         services.TryAddSingleton<RequestObjectValidator>();
 
         // Phase 5 — DPoP
         services.TryAddSingleton<DPopProofValidator>();
+        services.TryAddSingleton<DPoPNonceService>();
 
         // Discovery
         services.TryAddSingleton<DiscoveryService>();

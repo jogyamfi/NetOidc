@@ -100,6 +100,28 @@ app.UseAuthentication();
 app.MapNetOidc();
 ```
 
+## Production configuration
+
+Without configured keys the provider generates them at startup, which only suits development:
+tokens do not survive restarts or span instances, and a **Production host refuses to start**.
+
+```csharp
+builder.Services.AddNetOidc(options => { /* … */ })
+    // Signing keys: register the successor with a future notBefore to publish it ahead of use.
+    .AddSigningCertificate(signingCertificate)                       // RS256 by default
+    .AddSigningKey(new ECDsaSecurityKey(ecKey), "ES256", notBefore: rotationDate)
+    // Decrypts request objects encrypted to the provider.
+    .AddEncryptionKey(new RsaSecurityKey(rsaKey));
+    // Or source keys from a vault/HSM/KMS: .UseKeyStore<MyKeyStore>()
+```
+
+When running more than one instance, also replace the in-memory `IAdapter<T>` stores and
+`IReplayCache` with shared implementations, and set `DPoPNonceSecret` if DPoP nonces are enabled.
+
+Observability: traces and metrics are published under `NetOidc.Provider`
+(`.AddSource("NetOidc.Provider")` / `.AddMeter("NetOidc.Provider")` in OpenTelemetry), and
+`builder.Services.AddHealthChecks().AddNetOidcKeys()` reports the key state.
+
 ## Endpoints
 
 | Endpoint | Method | Spec | Feature flag |

@@ -3,10 +3,12 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Configuration;
 
@@ -39,11 +41,16 @@ public sealed class ClientAuthenticator
     private readonly IClientStore _clientStore;
     private readonly IOptions<ProviderOptions> _options;
     private readonly IReplayCache _replayCache;
+    private readonly ILogger<ClientAuthenticator> _logger;
+    private readonly IProviderEventSink _events;
     private readonly JsonWebTokenHandler _jwtHandler = new();
 
     public ClientAuthenticator(
-        IClientStore clientStore, IOptions<ProviderOptions> options, IReplayCache replayCache)
+        IClientStore clientStore, IOptions<ProviderOptions> options, IReplayCache replayCache,
+        ILogger<ClientAuthenticator> logger, IProviderEventSink events)
     {
+        _logger = logger;
+        _events = events;
         _clientStore = clientStore;
         _options = options;
         _replayCache = replayCache;
@@ -57,7 +64,8 @@ public sealed class ClientAuthenticator
     {
         var opts = _options.Value;
         var client = await AuthenticateCoreAsync(context, form, opts, ct);
-        if (client is null) return null;
+        if (client is null)
+            return await FailAsync(context, form, "invalid or missing client credentials", ct);
 
         // FAPI 2.0: only private_key_jwt and mTLS methods are allowed (§5.3.1).
         var isFapi2 = opts.FapiProfile is FapiProfile.Fapi2Security
@@ -65,14 +73,42 @@ public sealed class ClientAuthenticator
             or FapiProfile.FapiCiba;
         if (isFapi2 && client.TokenEndpointAuthMethod is not
                 ("private_key_jwt" or "tls_client_auth" or "self_signed_tls_client_auth"))
-            return null;
+            return await FailAsync(context, form, $"FAPI 2.0 does not allow {client.TokenEndpointAuthMethod}", ct);
 
         // FAPI 1.0 Advanced §5.2.2 (final): confidential clients using private_key_jwt or mTLS only.
         if (opts.FapiProfile == FapiProfile.Fapi1Advanced && client.TokenEndpointAuthMethod is not
                 ("private_key_jwt" or "tls_client_auth" or "self_signed_tls_client_auth"))
-            return null;
+            return await FailAsync(context, form, $"FAPI 1.0 does not allow {client.TokenEndpointAuthMethod}", ct);
 
+        System.Diagnostics.Activity.Current?.SetTag("netoidc.client_id", client.ClientId);
         return client;
+    }
+
+    /// <summary>Records a failed authentication (log, metric, event) and returns <c>null</c>.</summary>
+    private async Task<Client?> FailAsync(HttpContext context, IFormCollection form, string reason, CancellationToken ct)
+    {
+        var endpoint = context.Request.Path.Value ?? string.Empty;
+        var claimedId = ClaimedClientId(context, form);
+        Diagnostics.Log.ClientAuthenticationFailed(_logger, endpoint, claimedId, reason);
+        Diagnostics.NetOidcTelemetry.ClientAuthenticationFailures.Add(1,
+            new KeyValuePair<string, object?>("endpoint", endpoint));
+        await _events.ClientAuthenticationFailedAsync(
+            new ClientAuthenticationFailedEvent(claimedId, endpoint, reason, DateTimeOffset.UtcNow), ct);
+        return null;
+    }
+
+    /// <summary>The client id the caller claimed (Basic, form, or unverified assertion issuer).</summary>
+    private string? ClaimedClientId(HttpContext context, IFormCollection form)
+    {
+        var (basicId, _) = TryParseBasicAuth(context);
+        if (basicId is not null) return basicId;
+        var assertion = form["client_assertion"].ToString();
+        if (!string.IsNullOrEmpty(assertion))
+        {
+            try { return _jwtHandler.ReadJsonWebToken(assertion).Issuer; }
+            catch { return null; }
+        }
+        return string.IsNullOrEmpty(form["client_id"].ToString()) ? null : form["client_id"].ToString();
     }
 
     private async Task<Client?> AuthenticateCoreAsync(

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Configuration;
 using NetOidc.Provider.Errors;
@@ -34,6 +35,8 @@ public sealed class LogoutEndpointHandler
     private readonly SessionService _sessionService;
     private readonly IAntiforgery _antiforgery;
     private readonly BackChannelLogoutService? _backChannelLogout;
+    private readonly IProviderEventSink _events;
+    private readonly Microsoft.Extensions.Logging.ILogger<LogoutEndpointHandler> _logger;
 
     public LogoutEndpointHandler(
         IOptions<ProviderOptions> options,
@@ -41,8 +44,12 @@ public sealed class LogoutEndpointHandler
         TokenFactory tokenFactory,
         SessionService sessionService,
         IAntiforgery antiforgery,
+        IProviderEventSink events,
+        Microsoft.Extensions.Logging.ILogger<LogoutEndpointHandler> logger,
         BackChannelLogoutService? backChannelLogout = null)
     {
+        _events = events;
+        _logger = logger;
         _options = options;
         _clientStore = clientStore;
         _tokenFactory = tokenFactory;
@@ -136,6 +143,10 @@ public sealed class LogoutEndpointHandler
 
             await _sessionService.RemoveSessionAsync(session.SessionId, ct);
         }
+
+        Diagnostics.Log.LoggedOut(_logger, session?.ClientIds.Count ?? 0);
+        await _events.LoggedOutAsync(new LoggedOutEvent(
+            session?.Subject, session?.SessionId, session?.ClientIds ?? [], DateTimeOffset.UtcNow), ct);
 
         await context.SignOutAsync();
         context.Response.Cookies.Delete(SessionService.CookieName);

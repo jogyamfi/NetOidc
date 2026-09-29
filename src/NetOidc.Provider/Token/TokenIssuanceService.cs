@@ -87,6 +87,7 @@ public sealed class TokenIssuanceService
     private readonly SubjectIdentifierService _subjects;
     private readonly UserClaimsService _userClaims;
     private readonly IProviderEventSink _events;
+    private readonly Microsoft.Extensions.Logging.ILogger<TokenIssuanceService> _logger;
 
     public TokenIssuanceService(
         IOptions<ProviderOptions> options,
@@ -96,8 +97,10 @@ public sealed class TokenIssuanceService
         GrantService grants,
         SubjectIdentifierService subjects,
         UserClaimsService userClaims,
-        IProviderEventSink events)
+        IProviderEventSink events,
+        Microsoft.Extensions.Logging.ILogger<TokenIssuanceService> logger)
     {
+        _logger = logger;
         _options = options;
         _tokenFactory = tokenFactory;
         _accessTokens = accessTokens;
@@ -149,16 +152,28 @@ public sealed class TokenIssuanceService
         }
 
         // ── Access token ─────────────────────────────────────────────────────
-        var tokenId = GenerateId();
-        var publicSubject = request.Subject is null ? null : _subjects.Compute(request.Subject, client);
-        var accessToken = _tokenFactory.CreateAccessToken(
-            tokenId, publicSubject, client.ClientId, request.Scopes,
-            request.CnfJwkThumbprint, request.CnfX5tS256, request.Resources);
+        var format = client.AccessTokenFormat ?? opts.AccessTokenFormat;
+        string tokenId, accessToken;
+        if (format == TokenFormat.Opaque)
+        {
+            // A random reference; only its hash is stored (see AccessTokenService.OpaqueTokenId).
+            accessToken = GenerateId();
+            tokenId = AccessTokenService.OpaqueTokenId(accessToken);
+        }
+        else
+        {
+            tokenId = GenerateId();
+            var publicSubject = request.Subject is null ? null : _subjects.Compute(request.Subject, client);
+            accessToken = _tokenFactory.CreateAccessToken(
+                tokenId, publicSubject, client.ClientId, request.Scopes,
+                request.CnfJwkThumbprint, request.CnfX5tS256, request.Resources);
+        }
 
         var record = new AccessToken
         {
             TokenId = tokenId,
             GrantId = grantId ?? tokenId,
+            Format = format,
             ClientId = client.ClientId,
             Subject = request.Subject,
             Scopes = request.Scopes,
@@ -176,6 +191,9 @@ public sealed class TokenIssuanceService
         if (request.IdToken is { } idParams && request.Subject is not null && request.Scopes.Contains("openid"))
             idToken = await CreateIdTokenAsync(client, request.Subject, request.Scopes, idParams, accessToken, ct);
 
+        Diagnostics.Log.TokensIssued(_logger, client.ClientId, request.GrantType);
+        Diagnostics.NetOidcTelemetry.TokensIssued.Add(1,
+            new KeyValuePair<string, object?>("grant_type", request.GrantType));
         await _events.TokenIssuedAsync(new TokenIssuedEvent(
             client.ClientId, request.Subject, request.GrantType, request.Scopes, DateTimeOffset.UtcNow), ct);
 

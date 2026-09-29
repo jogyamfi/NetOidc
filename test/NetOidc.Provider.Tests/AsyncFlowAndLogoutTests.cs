@@ -51,7 +51,7 @@ public sealed class AsyncFlowAndLogoutTests
         {
             o.CibaEnabled = true;
             o.CibaPollingIntervalSeconds = 0;
-            o.ProcessBackchannelAuthenticationRequest = hook;
+            o.ProcessBackchannelAuthenticationRequest = hook ?? ((_, _) => Task.CompletedTask);
             o.StaticClients = [.. o.StaticClients, CibaClient("poll"), CibaClient("ping"), CibaClient("push")];
         });
 

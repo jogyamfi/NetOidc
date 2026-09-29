@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
+using NetOidc.Provider.Diagnostics;
 using NetOidc.Provider.Http;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -58,6 +59,10 @@ builder.Services.AddNetOidc(options =>
     ];
 })
 .AddEventSink<LoggingEventSink>();
+
+// Development uses generated keys (a Production host refuses to start without configured ones,
+// e.g. .AddSigningCertificate(certificate)). The health check reports the key state.
+builder.Services.AddHealthChecks().AddNetOidcKeys();
 
 var app = builder.Build();
 
@@ -151,6 +156,7 @@ app.MapGet("/account/logout", (HttpContext ctx, IAntiforgery antiforgery) =>
 });
 
 app.MapNetOidc();
+app.MapHealthChecks("/health");
 
 app.Run();
 

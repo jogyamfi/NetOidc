@@ -409,56 +409,56 @@ public sealed class Phase8Tests
     // ════════════════════════════════════════════════════════════════════════════
 
     [Fact]
-    public void VciService_IssueNonce_ReturnsNonEmptyString()
+    public async Task VciService_IssueNonce_ReturnsNonEmptyString()
     {
         var opts = Microsoft.Extensions.Options.Options.Create(new Configuration.ProviderOptions
         {
             VciNonceLifetimeSeconds = 300
         });
-        var svc = new NetOidc.Provider.Vci.VciService(opts);
+        var svc = new NetOidc.Provider.Vci.VciService(opts, new NetOidc.Provider.Adapters.InMemoryAdapter<CredentialNonce>());
 
-        var nonce = svc.IssueNonce();
+        var nonce = await svc.IssueNonceAsync();
 
         Assert.NotEmpty(nonce);
     }
 
     [Fact]
-    public void VciService_ConsumeNonce_ReturnsTrueOnFirstConsume()
+    public async Task VciService_ConsumeNonce_ReturnsTrueOnFirstConsume()
     {
         var opts = Microsoft.Extensions.Options.Options.Create(new Configuration.ProviderOptions
         {
             VciNonceLifetimeSeconds = 300
         });
-        var svc = new NetOidc.Provider.Vci.VciService(opts);
-        var nonce = svc.IssueNonce();
+        var svc = new NetOidc.Provider.Vci.VciService(opts, new NetOidc.Provider.Adapters.InMemoryAdapter<CredentialNonce>());
+        var nonce = await svc.IssueNonceAsync();
 
-        Assert.True(svc.ConsumeNonce(nonce));
+        Assert.True(await svc.ConsumeNonceAsync(nonce));
     }
 
     [Fact]
-    public void VciService_ConsumeNonce_ReturnsFalseOnSecondConsume()
+    public async Task VciService_ConsumeNonce_ReturnsFalseOnSecondConsume()
     {
         var opts = Microsoft.Extensions.Options.Options.Create(new Configuration.ProviderOptions
         {
             VciNonceLifetimeSeconds = 300
         });
-        var svc = new NetOidc.Provider.Vci.VciService(opts);
-        var nonce = svc.IssueNonce();
-        svc.ConsumeNonce(nonce);
+        var svc = new NetOidc.Provider.Vci.VciService(opts, new NetOidc.Provider.Adapters.InMemoryAdapter<CredentialNonce>());
+        var nonce = await svc.IssueNonceAsync();
+        await svc.ConsumeNonceAsync(nonce);
 
-        Assert.False(svc.ConsumeNonce(nonce));
+        Assert.False(await svc.ConsumeNonceAsync(nonce));
     }
 
     [Fact]
-    public void VciService_ConsumeNonce_ReturnsFalseForUnknownNonce()
+    public async Task VciService_ConsumeNonce_ReturnsFalseForUnknownNonce()
     {
         var opts = Microsoft.Extensions.Options.Options.Create(new Configuration.ProviderOptions
         {
             VciNonceLifetimeSeconds = 300
         });
-        var svc = new NetOidc.Provider.Vci.VciService(opts);
+        var svc = new NetOidc.Provider.Vci.VciService(opts, new NetOidc.Provider.Adapters.InMemoryAdapter<CredentialNonce>());
 
-        Assert.False(svc.ConsumeNonce("never-issued-nonce"));
+        Assert.False(await svc.ConsumeNonceAsync("never-issued-nonce"));
     }
 
     // ════════════════════════════════════════════════════════════════════════════
@@ -474,7 +474,7 @@ public sealed class Phase8Tests
             FederationEnabled = true,
             FederationEntityStatementLifetimeSeconds = 3600,
         });
-        var keyProvider = new Jose.SigningKeyProvider();
+        var keyProvider = new Jose.KeyRing(new Jose.ConfiguredKeyStore(opts), opts);
         var svc = new NetOidc.Provider.Federation.FederationService(opts, keyProvider);
 
         var jwt = svc.BuildEntityConfiguration();

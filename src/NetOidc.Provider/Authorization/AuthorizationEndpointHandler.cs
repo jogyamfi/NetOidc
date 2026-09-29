@@ -48,6 +48,7 @@ public sealed class AuthorizationEndpointHandler
     private readonly SessionService _sessionService;
     private readonly RequestObjectValidator _requestObjectValidator;
     private readonly IProviderEventSink _events;
+    private readonly Microsoft.Extensions.Logging.ILogger<AuthorizationEndpointHandler> _logger;
 
     public AuthorizationEndpointHandler(
         IOptions<ProviderOptions> options,
@@ -62,8 +63,10 @@ public sealed class AuthorizationEndpointHandler
         SubjectIdentifierService subjects,
         SessionService sessionService,
         RequestObjectValidator requestObjectValidator,
-        IProviderEventSink events)
+        IProviderEventSink events,
+        Microsoft.Extensions.Logging.ILogger<AuthorizationEndpointHandler> logger)
     {
+        _logger = logger;
         _options = options;
         _clientStore = clientStore;
         _codeStore = codeStore;
@@ -80,6 +83,60 @@ public sealed class AuthorizationEndpointHandler
     }
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
+    {
+        var result = await HandleCoreAsync(context, ct);
+        await RecordOutcomeAsync(context, result, ct);
+        return result;
+    }
+
+    /// <summary>Logs, counts and raises an event for the authorization outcome.</summary>
+    private async Task RecordOutcomeAsync(HttpContext context, IResult result, CancellationToken ct)
+    {
+        var opts = _options.Value;
+        var clientId = context.Request.Query["client_id"].ToString();
+        if (string.IsNullOrEmpty(clientId) && context.Request.HasFormContentType)
+            clientId = context.Request.Form["client_id"].ToString();
+
+        string? error = null, description = null;
+        switch (result)
+        {
+            case Microsoft.AspNetCore.Http.HttpResults.RedirectHttpResult redirect
+                when redirect.Url.StartsWith(opts.LoginPath, StringComparison.Ordinal) ||
+                     redirect.Url.StartsWith(opts.ConsentPath, StringComparison.Ordinal):
+                Diagnostics.Log.AuthorizationSuspended(_logger, clientId,
+                    redirect.Url.StartsWith(opts.ConsentPath, StringComparison.Ordinal) ? "consent" : "login");
+                return;
+            case Microsoft.AspNetCore.Http.HttpResults.RedirectHttpResult redirect:
+                var uri = new Uri(new Uri("https://client.invalid"), redirect.Url);
+                var response = QueryHelpers.ParseQuery(uri.Fragment.Length > 1 ? uri.Fragment[1..] : uri.Query);
+                if (response.TryGetValue("error", out var e))
+                {
+                    error = e.ToString();
+                    description = response.TryGetValue("error_description", out var d) ? d.ToString() : null;
+                }
+                break;
+            case Microsoft.AspNetCore.Http.HttpResults.BadRequest<OAuthError> { Value: { } page }:
+                (error, description) = (page.Error, page.Description);
+                break;
+            case Microsoft.AspNetCore.Http.HttpResults.ContentHttpResult { ResponseContent: { } html }
+                when html.Contains("name=\"error\"", StringComparison.Ordinal):
+                error = "error";
+                break;
+        }
+
+        Diagnostics.NetOidcTelemetry.Authorizations.Add(1,
+            new KeyValuePair<string, object?>("outcome", error ?? "success"));
+        if (error is null)
+        {
+            Diagnostics.Log.AuthorizationCompleted(_logger, clientId);
+            return;
+        }
+        Diagnostics.Log.AuthorizationFailed(_logger, NullIfEmpty(clientId), error, description);
+        await _events.AuthorizationFailedAsync(
+            new AuthorizationFailedEvent(NullIfEmpty(clientId), error, description, DateTimeOffset.UtcNow), ct);
+    }
+
+    private async Task<IResult> HandleCoreAsync(HttpContext context, CancellationToken ct)
     {
         var opts = _options.Value;
 
@@ -420,7 +477,7 @@ public sealed class AuthorizationEndpointHandler
         await _events.AuthorizationSucceededAsync(new AuthorizationSucceededEvent(
             clientId, localSubject, rawResponseType, grantedScopes, authTime), ct);
 
-        return BuildRedirect(redirectUri, baseMode, response, useJarm ? clientId : null);
+        return BuildRedirect(redirectUri, baseMode, response, useJarm ? client : null);
     }
 
     // ── Parameter sources ─────────────────────────────────────────────────────
@@ -679,15 +736,15 @@ public sealed class AuthorizationEndpointHandler
 
     private IResult BuildRedirect(
         string redirectUri, string? responseMode,
-        IDictionary<string, string?> parameters, string? jarmClientId)
+        IDictionary<string, string?> parameters, Client? jarmClient)
     {
         var nonNull = parameters
             .Where(kv => kv.Value is not null)
             .ToDictionary(kv => kv.Key, kv => kv.Value!);
 
-        if (jarmClientId is not null)
+        if (jarmClient is not null)
         {
-            var jarmJwt = _tokenFactory.CreateJarmToken(jarmClientId, nonNull);
+            var jarmJwt = _tokenFactory.CreateJarmToken(jarmClient.ClientId, nonNull, jarmClient.AuthorizationSignedResponseAlg);
             nonNull = new Dictionary<string, string> { ["response"] = jarmJwt };
         }
 

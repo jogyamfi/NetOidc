@@ -291,7 +291,7 @@ Bugs found and fixed while doing this phase:
 
 ## Phase 4 — Key management & operability
 
-- [ ] **P4.1 Key management** — **BREAKING**
+- [x] **P4.1 Key management** — **BREAKING**
   - Replace the ephemeral `SigningKeyProvider`/`EncryptionKeyProvider` with an `IKeyStore`
     abstraction (configured keys, X.509 certs, HSM/KMS via delegates — the `JWKSFunc`/`SignerFunc`
     equivalents promised in the implementation plan).
@@ -299,15 +299,30 @@ Bugs found and fixed while doing this phase:
   - Per-client `id_token_signed_response_alg`, `authorization_signed_response_alg`, and
     EC/PS algorithms advertised in discovery.
   - Refuse to start in Production environment with auto-generated keys.
-- [ ] **P4.2 Logging** — no `ILogger` exists in the library. Add structured logging to every
+- [x] **P4.2 Logging** — no `ILogger` exists in the library. Add structured logging to every
   endpoint (no secrets/tokens), plus failure events: client auth failure, invalid grant,
   logout, device/CIBA decisions, DCR changes.
-- [ ] **P4.3 Distributed replay caches** — move DPoP `jti`, client-assertion `jti`, VCI
+- [x] **P4.3 Distributed replay caches** — move DPoP `jti`, client-assertion `jti`, VCI
   nonces behind an `IReplayCache` adapter; support DPoP server nonces (RFC 9449 §8).
-- [ ] **P4.4 Options validation** — `IValidateOptions` for all options: absolute https
+- [x] **P4.4 Options validation** — `IValidateOptions` for all options: absolute https
   `Issuer` (http only in Development), positive lifetimes, required hooks for enabled features.
-- [ ] **P4.5 Opaque access tokens** — offered in the implementation plan, not implemented.
-- [ ] **P4.6 Health/observability** — `ActivitySource` tracing and metrics (tokens issued, failures).
+- [x] **P4.5 Opaque access tokens** — offered in the implementation plan, not implemented.
+- [x] **P4.6 Health/observability** — `ActivitySource` tracing and metrics (tokens issued, failures).
+
+### Phase 4 — implementation notes (branch `feat/p4-keys-ops`)
+
+All six items are implemented with regression tests (421 tests pass, stable over repeated
+runs). The sample host was checked end to end, including its `/health` endpoint and that it
+refuses to start in Production. Differences from the text above, and follow-ups:
+
+| Item | Note |
+|------|------|
+| P4.1 | `SigningKeyProvider`/`EncryptionKeyProvider` are replaced by `IKeyStore` + `KeyRing` (**BREAKING**). Keys come from `AddSigningKey`, `AddSigningCertificate`, `AddEncryptionKey`, `AddKey` (HSM/KMS: a `SecurityKey` with a custom `CryptoProviderFactory` plus `PublicJwk`) or `UseKeyStore<T>()`. Rotation uses `NotBefore`/`NotAfter`: future keys are published but unused; expired keys drop out of JWKS and validation. `KeyRingStartupCheck` refuses generated keys in Production and validates algorithms, key types and `kid` uniqueness. New `Client.IdTokenSignedResponseAlg`; `AuthorizationSignedResponseAlg` is now honoured; `at_hash`/`c_hash`/`rt_hash` follow the signing algorithm. UserInfo signing (`userinfo_signed_response_alg`) remains P5.2. |
+| P4.2 | Structured `LoggerMessage` logging at every endpoint (client ids, grant types and error codes only). New `IProviderEventSink` events are default interface methods, so existing sinks keep compiling. |
+| P4.3 | DPoP/assertion/jwt-bearer/CIBA `jti` already used `IReplayCache`; VCI nonces now use `IAdapter<CredentialNonce>`. DPoP server nonces are stateless (HMAC + time) and need a shared `DPoPNonceSecret` across instances. No Redis/SQL adapters ship: the `IAdapter`/`IReplayCache` docs spell out the atomicity required (Redis `SET NX`/`GETDEL`). |
+| P4.4 | `ProviderOptionsValidator` covers issuer, lifetimes, paths, feature prerequisites and static clients. `CibaEnabled` now requires `ProcessBackchannelAuthenticationRequest`, and `VciEnabled` requires `IssueCredential`. `JwtBearerGrantEnabled` does not require its policy: the grant stays deny-by-default. |
+| P4.5 | `ProviderOptions.AccessTokenFormat` / `Client.AccessTokenFormat`. Opaque tokens are stored by SHA-256 hash; introspection now answers from the stored record for both formats. |
+| P4.6 | `NetOidcTelemetry` (`ActivitySource` + `Meter` named `NetOidc.Provider`): per-endpoint traces and duration histogram, plus counters for tokens issued, failed token requests, authorizations and client-auth failures. `AddHealthChecks().AddNetOidcKeys()` reports the key state. |
 
 ---
 

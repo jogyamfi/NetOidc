@@ -32,7 +32,8 @@ internal sealed class TestWebApp : IAsyncDisposable
         Action<Configuration.ProviderOptions>? configure,
         Action<NetOidc.Provider.Configuration.NetOidcBuilder>? configureBuilder)
     {
-        var builder = WebApplication.CreateBuilder();
+        // Development: tests rely on generated keys, which Production hosts refuse.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
         builder.WebHost.UseTestServer();
 
         builder.Services
@@ -45,6 +46,9 @@ internal sealed class TestWebApp : IAsyncDisposable
             opts.LoginPath = "/test/signin";
             // Requests arrive from loopback (see middleware below), acting as the TLS proxy.
             opts.MtlsTrustedProxies = ["127.0.0.1"];
+            // Required hooks for features tests may enable; individual tests override them.
+            opts.ProcessBackchannelAuthenticationRequest = (_, _) => Task.CompletedTask;
+            opts.IssueCredential = (_, _) => Task.FromResult("test-credential");
 
             opts.StaticClients =
             [

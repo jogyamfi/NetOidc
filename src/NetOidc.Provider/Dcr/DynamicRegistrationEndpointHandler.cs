@@ -27,13 +27,16 @@ public sealed class DynamicRegistrationEndpointHandler
     private readonly IDynamicClientStore _clientStore;
     private readonly RequestThrottle _throttle;
     private readonly ILogger<DynamicRegistrationEndpointHandler> _logger;
+    private readonly Abstractions.Events.IProviderEventSink _events;
 
     public DynamicRegistrationEndpointHandler(
         IOptions<ProviderOptions> options,
         IDynamicClientStore clientStore,
         RequestThrottle throttle,
-        ILogger<DynamicRegistrationEndpointHandler> logger)
+        ILogger<DynamicRegistrationEndpointHandler> logger,
+        Abstractions.Events.IProviderEventSink events)
     {
+        _events = events;
         _logger = logger;
         _throttle = throttle;
         _options = options;
@@ -89,6 +92,7 @@ public sealed class DynamicRegistrationEndpointHandler
         }
 
         await _clientStore.StoreClientAsync(client!, ct);
+        await RecordChangeAsync(client!.ClientId, "created", ct);
 
         return Results.Json(BuildResponse(opts, client!, registrationToken), statusCode: 201);
     }
@@ -168,6 +172,7 @@ public sealed class DynamicRegistrationEndpointHandler
         }
 
         await _clientStore.StoreClientAsync(final, ct);
+        await RecordChangeAsync(final.ClientId, "updated", ct);
 
         return Results.Json(BuildResponse(opts, final, registrationToken));
     }
@@ -181,7 +186,15 @@ public sealed class DynamicRegistrationEndpointHandler
         if (client is null) return DcrError(OAuthError.InvalidClient("unauthorized"), 401);
 
         await _clientStore.RemoveClientAsync(clientId, ct);
+        await RecordChangeAsync(clientId, "deleted", ct);
         return Results.NoContent();
+    }
+
+    private async Task RecordChangeAsync(string clientId, string change, CancellationToken ct)
+    {
+        Diagnostics.Log.ClientRegistrationChanged(_logger, clientId, change);
+        await _events.ClientRegistrationChangedAsync(
+            new Abstractions.Events.ClientRegistrationChangedEvent(clientId, change, DateTimeOffset.UtcNow), ct);
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────

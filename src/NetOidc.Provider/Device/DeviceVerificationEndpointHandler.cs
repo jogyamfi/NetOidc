@@ -26,13 +26,19 @@ public sealed class DeviceVerificationEndpointHandler
     private readonly IAdapter<DeviceCode> _deviceCodeStore;
     private readonly IAntiforgery _antiforgery;
     private readonly RequestThrottle _throttle;
+    private readonly Abstractions.Events.IProviderEventSink _events;
+    private readonly Microsoft.Extensions.Logging.ILogger<DeviceVerificationEndpointHandler> _logger;
 
     public DeviceVerificationEndpointHandler(
         IOptions<ProviderOptions> options,
         IAdapter<DeviceCode> deviceCodeStore,
         IAntiforgery antiforgery,
-        RequestThrottle throttle)
+        RequestThrottle throttle,
+        Abstractions.Events.IProviderEventSink events,
+        Microsoft.Extensions.Logging.ILogger<DeviceVerificationEndpointHandler> logger)
     {
+        _events = events;
+        _logger = logger;
         _options = options;
         _deviceCodeStore = deviceCodeStore;
         _antiforgery = antiforgery;
@@ -135,6 +141,10 @@ public sealed class DeviceVerificationEndpointHandler
             await _deviceCodeStore.StoreAsync(deviceCode.DeviceCodeValue, deviceCode, remaining, ct);
             await _deviceCodeStore.StoreAsync(key, deviceCode, remaining, ct);
         }
+
+        Diagnostics.Log.AuthorizationDecision(_logger, "device_code", deviceCode.ClientId, denied ? "denied" : "approved");
+        await _events.AuthorizationDecisionAsync(new Abstractions.Events.AuthorizationDecisionEvent(
+            deviceCode.ClientId, subject, "device_code", !denied, DateTimeOffset.UtcNow), ct);
 
         return Results.Json(new
         {
