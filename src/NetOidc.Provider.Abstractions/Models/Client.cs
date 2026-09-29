@@ -28,6 +28,9 @@ public sealed class Client
     /// </summary>
     public bool RequireConsent { get; init; } = true;
 
+    /// <summary>Access-token format for this client; <c>null</c> uses the provider default.</summary>
+    public TokenFormat? AccessTokenFormat { get; init; }
+
     /// <summary>
     /// Resource indicators (RFC 8707) this client may request. Empty means any resource in
     /// <c>ProviderOptions.AllowedResources</c>.
@@ -109,6 +112,9 @@ public sealed class Client
 
     /// <summary>Signing alg for JARM authorization responses (e.g. "RS256"). Null = use server default.</summary>
     public string? AuthorizationSignedResponseAlg { get; init; }
+
+    /// <summary>OIDC Registration <c>id_token_signed_response_alg</c> (e.g. "ES256"). Null = provider default.</summary>
+    public string? IdTokenSignedResponseAlg { get; init; }
 
     // ── ID Token encryption ──────────────────────────────────────────────────
 

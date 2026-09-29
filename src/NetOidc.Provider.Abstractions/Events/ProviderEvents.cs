@@ -34,3 +34,46 @@ public sealed record UserInfoRequestedEvent(
     string Subject,
     IReadOnlyList<string> Scopes,
     DateTimeOffset RequestedAt);
+
+/// <summary>Raised when client authentication fails. <paramref name="ClientId"/> is the claimed id, if any.</summary>
+public sealed record ClientAuthenticationFailedEvent(
+    string? ClientId,
+    string Endpoint,
+    string Reason,
+    DateTimeOffset OccurredAt);
+
+/// <summary>Raised when the token endpoint rejects a request (after or during client authentication).</summary>
+public sealed record TokenRequestFailedEvent(
+    string? ClientId,
+    string GrantType,
+    string Error,
+    string? Description,
+    DateTimeOffset OccurredAt);
+
+/// <summary>Raised when the authorization endpoint returns an error.</summary>
+public sealed record AuthorizationFailedEvent(
+    string? ClientId,
+    string Error,
+    string? Description,
+    DateTimeOffset OccurredAt);
+
+/// <summary>Raised when an End-User session ends; <paramref name="ClientIds"/> are the clients notified.</summary>
+public sealed record LoggedOutEvent(
+    string? Subject,
+    string? SessionId,
+    IReadOnlyList<string> ClientIds,
+    DateTimeOffset OccurredAt);
+
+/// <summary>Raised when an End-User approves or denies a device (<c>device_code</c>) or CIBA request.</summary>
+public sealed record AuthorizationDecisionEvent(
+    string ClientId,
+    string? Subject,
+    string Flow,
+    bool Approved,
+    DateTimeOffset OccurredAt);
+
+/// <summary>Raised when a client is registered (<c>created</c>), <c>updated</c> or <c>deleted</c> through DCR.</summary>
+public sealed record ClientRegistrationChangedEvent(
+    string ClientId,
+    string Change,
+    DateTimeOffset OccurredAt);

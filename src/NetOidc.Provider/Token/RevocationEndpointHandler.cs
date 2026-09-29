@@ -24,6 +24,8 @@ public sealed class RevocationEndpointHandler
     private readonly IOptions<ProviderOptions> _options;
     private readonly IProviderEventSink _events;
     private readonly RefreshTokenService _refreshTokens;
+    private readonly AccessTokenService _accessTokens;
+    private readonly Microsoft.Extensions.Logging.ILogger<RevocationEndpointHandler> _logger;
 
     public RevocationEndpointHandler(
         ClientAuthenticator clientAuthenticator,
@@ -32,8 +34,12 @@ public sealed class RevocationEndpointHandler
         TokenFactory tokenFactory,
         IOptions<ProviderOptions> options,
         IProviderEventSink events,
-        RefreshTokenService refreshTokens)
+        RefreshTokenService refreshTokens,
+        AccessTokenService accessTokens,
+        Microsoft.Extensions.Logging.ILogger<RevocationEndpointHandler> logger)
     {
+        _logger = logger;
+        _accessTokens = accessTokens;
         _refreshTokens = refreshTokens;
         _clientAuthenticator = clientAuthenticator;
         _accessTokenStore = accessTokenStore;
@@ -77,6 +83,7 @@ public sealed class RevocationEndpointHandler
         }
 
         // RFC 7009 §2.2: response is always 200 OK with an empty body
+        Diagnostics.Log.RevocationRequested(_logger, caller.ClientId);
         await _events.TokenRevokedAsync(new TokenRevokedEvent(
             caller.ClientId, TokenSubject: null, DateTimeOffset.UtcNow), ct);
         return Results.Ok();
@@ -86,15 +93,11 @@ public sealed class RevocationEndpointHandler
 
     private async Task TryRevokeAccessTokenAsync(string token, Client caller, CancellationToken ct)
     {
-        // JWT access tokens: validate to extract jti, then remove from store
-        var principal = await _tokenFactory.ValidateAccessTokenAsync(token, ct);
-        if (principal is null) return;
-
-        var jti = principal.FindFirstValue("jti");
-        if (jti is null) return;
-
-        var stored = await _accessTokenStore.FindAsync(jti, ct);
-        if (stored is null) return;
+        // JWT or opaque: resolve the stored record, then remove it.
+        var live = await _accessTokens.ValidateAsync(token, ct);
+        if (live is null) return;
+        var stored = live.Record;
+        var jti = stored.TokenId;
 
         // Clients may only revoke their own tokens
         if (stored.ClientId != caller.ClientId) return;

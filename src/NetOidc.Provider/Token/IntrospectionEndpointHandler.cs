@@ -26,6 +26,7 @@ public sealed class IntrospectionEndpointHandler
     private readonly SubjectIdentifierService _subjects;
     private readonly IOptions<ProviderOptions> _options;
     private readonly IProviderEventSink _events;
+    private readonly Microsoft.Extensions.Logging.ILogger<IntrospectionEndpointHandler> _logger;
 
     public IntrospectionEndpointHandler(
         ClientAuthenticator clientAuthenticator,
@@ -34,8 +35,10 @@ public sealed class IntrospectionEndpointHandler
         IClientStore clientStore,
         SubjectIdentifierService subjects,
         IOptions<ProviderOptions> options,
-        IProviderEventSink events)
+        IProviderEventSink events,
+        Microsoft.Extensions.Logging.ILogger<IntrospectionEndpointHandler> logger)
     {
+        _logger = logger;
         _clientAuthenticator = clientAuthenticator;
         _accessTokens = accessTokens;
         _refreshTokens = refreshTokens;
@@ -74,6 +77,7 @@ public sealed class IntrospectionEndpointHandler
             result = await IntrospectAccessTokenAsync(token, caller, ct)
                      ?? await IntrospectRefreshTokenAsync(token, caller, ct);
 
+        Diagnostics.Log.Introspected(_logger, caller.ClientId, result is not null);
         await _events.TokenIntrospectedAsync(new TokenIntrospectedEvent(
             caller.ClientId, Active: result is not null, TokenSubject: null, DateTimeOffset.UtcNow), ct);
 
@@ -88,14 +92,16 @@ public sealed class IntrospectionEndpointHandler
         // Signature, lifetime, revocation and grant liveness.
         var live = await _accessTokens.ValidateAsync(token, ct);
         if (live is null) return null;
-        var (principal, stored) = live;
+        // Everything comes from the stored record, so JWT and opaque tokens answer identically.
+        var stored = live.Record;
         var jti = stored.TokenId;
 
         // RFC 7662 §4: don't disclose token metadata to arbitrary clients. By default a caller
         // may introspect tokens issued to it or intended for it (aud); resource servers are
         // authorised through the AuthorizeIntrospection hook. Unauthorised → inactive.
-        var audiences = principal.FindAll("aud").Select(c => c.Value).ToList();
         var opts = _options.Value;
+        var audiences = new List<string> { opts.Issuer };
+        audiences.AddRange(stored.Resources.Where(r => r != opts.Issuer));
         var permitted = stored.ClientId == caller.ClientId || audiences.Contains(caller.ClientId);
         if (!permitted && opts.AuthorizeIntrospection is not null)
             permitted = await opts.AuthorizeIntrospection(
@@ -106,15 +112,15 @@ public sealed class IntrospectionEndpointHandler
         {
             ["active"] = true,
             ["token_type"] = stored.CnfJwkThumbprint is not null ? "DPoP" : "Bearer",
-            ["scope"] = principal.FindFirstValue("scope") ?? string.Empty,
+            ["scope"] = string.Join(' ', stored.Scopes),
             ["client_id"] = stored.ClientId,
             ["iss"] = opts.Issuer.TrimEnd('/'),
             ["exp"] = ToUnixSeconds(stored.ExpiresAt),
             ["jti"] = jti,
         };
         if (stored.Subject is not null) body["sub"] = await PublicSubjectAsync(stored.Subject, stored.ClientId, ct);
-        if (long.TryParse(principal.FindFirstValue("iat"), out var iat)) body["iat"] = iat;
-        if (audiences.Count > 0) body["aud"] = audiences.Count == 1 ? audiences[0] : audiences;
+        body["iat"] = ToUnixSeconds(stored.IssuedAt);
+        body["aud"] = audiences.Count == 1 ? audiences[0] : audiences;
 
         // RFC 9449 §6.2 / RFC 8705 §3.2: expose the confirmation so resource servers can enforce it.
         if (stored.CnfJwkThumbprint is not null)

@@ -18,6 +18,8 @@ public sealed class AccessToken
 
     public TokenFormat Format { get; init; } = TokenFormat.Jwt;
 
+    public DateTimeOffset IssuedAt { get; init; } = DateTimeOffset.UtcNow;
+
     public DateTimeOffset ExpiresAt { get; init; }
 
     // ── Phase 4 ──────────────────────────────────────────────────────────────

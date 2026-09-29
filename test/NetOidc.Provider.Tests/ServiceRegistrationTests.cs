@@ -59,6 +59,7 @@ public sealed class ServiceRegistrationTests
                 new Client
                 {
                     ClientId = "test-client",
+                    ClientSecret = "secret",
                     AllowedGrantTypes = ["authorization_code"],
                     AllowedScopes = ["openid"],
                     RedirectUris = ["https://app.example.com/cb"],

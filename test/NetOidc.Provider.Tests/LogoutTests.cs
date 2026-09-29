@@ -160,6 +160,7 @@ public sealed class LogoutTests : IAsyncLifetime
                 new Abstractions.Models.Client
                 {
                     ClientId = "query-logout-client",
+                    ClientSecret = "secret",
                     PostLogoutRedirectUris = ["https://client.test.example.com/logout?x=1"],
                 },
             ];

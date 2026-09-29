@@ -13,6 +13,9 @@ namespace NetOidc.Provider.DPoP;
 /// Validates DPoP proofs per RFC 9449 and computes JWK thumbprints (RFC 7638).
 /// Thread-safe; proof `jti` values are recorded in an <see cref="IReplayCache"/>.
 /// </summary>
+/// <summary>A validated DPoP proof: the key thumbprint and the server nonce it carried, if any.</summary>
+public sealed record DPoPProof(string Thumbprint, string? Nonce);
+
 public sealed class DPopProofValidator
 {
     private readonly IReplayCache _replayCache;
@@ -46,6 +49,18 @@ public sealed class DPopProofValidator
     /// </param>
     /// <param name="clockSkewSeconds">Allowed IAT drift (default 300 s).</param>
     public async Task<string?> ValidateProofAsync(
+        string? dpopHeader,
+        string httpMethod,
+        string httpUri,
+        string? accessToken = null,
+        int clockSkewSeconds = 300) =>
+        (await ValidateAsync(dpopHeader, httpMethod, httpUri, accessToken, clockSkewSeconds))?.Thumbprint;
+
+    /// <summary>
+    /// Validates a DPoP proof and returns its JWK thumbprint and <c>nonce</c> claim, or
+    /// <c>null</c> when the proof is missing or invalid. Server-nonce policy is the caller's.
+    /// </summary>
+    public async Task<DPoPProof?> ValidateAsync(
         string? dpopHeader,
         string httpMethod,
         string httpUri,
@@ -124,7 +139,7 @@ public sealed class DPopProofValidator
                 return null;
         }
 
-        return ComputeJwkThumbprint(jwk);
+        return new DPoPProof(ComputeJwkThumbprint(jwk), identity.FindFirst("nonce")?.Value);
     }
 
     // ── static helpers ─────────────────────────────────────────────────────────

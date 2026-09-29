@@ -8,17 +8,14 @@ namespace NetOidc.Provider.Discovery;
 public sealed class DiscoveryService
 {
     private readonly IOptions<ProviderOptions> _options;
-    private readonly SigningKeyProvider _keyProvider;
-    private readonly EncryptionKeyProvider _encryptionKeyProvider;
+    private readonly KeyRing _keys;
 
     public DiscoveryService(
         IOptions<ProviderOptions> options,
-        SigningKeyProvider keyProvider,
-        EncryptionKeyProvider encryptionKeyProvider)
+        KeyRing keys)
     {
         _options = options;
-        _keyProvider = keyProvider;
-        _encryptionKeyProvider = encryptionKeyProvider;
+        _keys = keys;
     }
 
     public DiscoveryDocument BuildDocument()
@@ -91,7 +88,7 @@ public sealed class DiscoveryService
             ],
             GrantTypesSupported = grantTypes,
             SubjectTypesSupported = subjectTypes,
-            IdTokenSigningAlgValuesSupported = ["RS256"],
+            IdTokenSigningAlgValuesSupported = _keys.SigningAlgorithms,
             TokenEndpointAuthMethodsSupported = tokenEndpointAuthMethods,
             IntrospectionEndpointAuthMethodsSupported = tokenAuthMethods,
             RevocationEndpointAuthMethodsSupported = tokenAuthMethods,
@@ -126,7 +123,7 @@ public sealed class DiscoveryService
                 ? ["A128CBC-HS256", "A256CBC-HS512", "A128GCM", "A256GCM"]
                 : null,
             AuthorizationSigningAlgValuesSupported = opts.JarmEnabled
-                ? ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"]
+                ? _keys.SigningAlgorithms
                 : null,
             ResourceIndicatorsSupported = opts.ResourceIndicatorsEnabled,
             AuthorizationDetailsTypesSupported = opts.RichAuthorizationRequestsEnabled &&
@@ -170,10 +167,7 @@ public sealed class DiscoveryService
     /// <summary>Returns the JSON Web Key Set containing all active public keys.</summary>
     public object BuildJwks() => new
     {
-        keys = new object[]
-        {
-            _keyProvider.GetPublicJwk(),
-            _encryptionKeyProvider.GetPublicJwk(),
-        }
+        // Every published key: active, upcoming (pre-published for rotation) and retiring.
+        keys = _keys.GetPublicJwks()
     };
 }

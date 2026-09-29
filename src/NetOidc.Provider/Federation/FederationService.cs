@@ -16,13 +16,13 @@ namespace NetOidc.Provider.Federation;
 public sealed class FederationService
 {
     private readonly IOptions<ProviderOptions> _options;
-    private readonly SigningKeyProvider _keyProvider;
+    private readonly KeyRing _keys;
     private readonly JsonWebTokenHandler _jwtHandler = new();
 
-    public FederationService(IOptions<ProviderOptions> options, SigningKeyProvider keyProvider)
+    public FederationService(IOptions<ProviderOptions> options, KeyRing keys)
     {
         _options = options;
-        _keyProvider = keyProvider;
+        _keys = keys;
     }
 
     /// <summary>
@@ -35,7 +35,7 @@ public sealed class FederationService
         var now = DateTimeOffset.UtcNow;
 
         // Build the openid_provider metadata sub-object
-        var opMetadata = BuildOpenIdProviderMetadata(opts, issuer);
+        var opMetadata = BuildOpenIdProviderMetadata(opts, issuer, _keys.SigningAlgorithms);
 
         // Federation entity metadata (optional — organizational info)
         var federationEntityMetadata = new Dictionary<string, object>
@@ -58,7 +58,7 @@ public sealed class FederationService
             ["metadata"] = metadata,
             ["jwks"] = new Dictionary<string, object>
             {
-                ["keys"] = new[] { _keyProvider.GetPublicJwk() }
+                ["keys"] = _keys.GetPublicJwks().Where(k => (string)k["use"] == "sig").ToArray()
             },
         };
 
@@ -70,7 +70,7 @@ public sealed class FederationService
             Issuer = issuer,
             IssuedAt = now.UtcDateTime,
             Expires = now.AddSeconds(opts.FederationEntityStatementLifetimeSeconds).UtcDateTime,
-            SigningCredentials = _keyProvider.GetSigningCredentials(),
+            SigningCredentials = _keys.GetSigningCredentials(),
             TokenType = "entity-statement+jwt",
             Claims = claims,
         };
@@ -78,7 +78,8 @@ public sealed class FederationService
         return _jwtHandler.CreateToken(descriptor);
     }
 
-    private static Dictionary<string, object> BuildOpenIdProviderMetadata(ProviderOptions opts, string issuer)
+    private static Dictionary<string, object> BuildOpenIdProviderMetadata(
+        ProviderOptions opts, string issuer, IReadOnlyList<string> signingAlgorithms)
     {
         string Abs(string p) => issuer + p;
 
@@ -94,7 +95,7 @@ public sealed class FederationService
             ["subject_types_supported"] = opts.SubjectType == "pairwise"
                 ? new[] { "pairwise", "public" }
                 : new[] { "public" },
-            ["id_token_signing_alg_values_supported"] = new[] { "RS256" },
+            ["id_token_signing_alg_values_supported"] = signingAlgorithms,
             ["token_endpoint_auth_methods_supported"] = new[]
             {
                 "client_secret_basic", "client_secret_post", "private_key_jwt"

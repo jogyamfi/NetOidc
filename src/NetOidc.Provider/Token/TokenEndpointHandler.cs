@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NetOidc.Provider.Abstractions.Adapters;
+using NetOidc.Provider.Abstractions.Events;
 using NetOidc.Provider.Abstractions.Models;
 using NetOidc.Provider.Authorization;
 using NetOidc.Provider.Configuration;
@@ -37,11 +38,13 @@ public sealed class TokenEndpointHandler
     private readonly IAdapter<BackchannelAuthenticationRequest> _cibaStore;
     private readonly TokenFactory _tokenFactory;
     private readonly DPopProofValidator _dpopValidator;
+    private readonly DPoPNonceService _dpopNonces;
     private readonly IReplayCache _replayCache;
     private readonly AccessTokenService _accessTokens;
     private readonly TokenIssuanceService _issuer;
     private readonly GrantService _grants;
     private readonly ILogger<TokenEndpointHandler> _logger;
+    private readonly IProviderEventSink _events;
 
     public TokenEndpointHandler(
         IOptions<ProviderOptions> options,
@@ -56,8 +59,12 @@ public sealed class TokenEndpointHandler
         AccessTokenService accessTokens,
         TokenIssuanceService issuer,
         GrantService grants,
-        ILogger<TokenEndpointHandler> logger)
+        ILogger<TokenEndpointHandler> logger,
+        DPoPNonceService dpopNonces,
+        IProviderEventSink events)
     {
+        _events = events;
+        _dpopNonces = dpopNonces;
         _options = options;
         _clientAuthenticator = clientAuthenticator;
         _codeStore = codeStore;
@@ -76,7 +83,30 @@ public sealed class TokenEndpointHandler
     /// <summary>Sender-constraint material presented with the token request.</summary>
     private sealed record Binding(string? Jkt, string? X5tS256);
 
+    private const string ClientIdItem = "netoidc.token.client_id";
+
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
+    {
+        var result = await HandleCoreAsync(context, ct);
+
+        // One place records every rejected token request (client-auth failures are recorded
+        // by the authenticator itself).
+        if (result is Microsoft.AspNetCore.Http.HttpResults.JsonHttpResult<OAuthError> { Value: { } error } &&
+            error.Error != "invalid_client")
+        {
+            var grantType = context.Request.HasFormContentType ? context.Request.Form["grant_type"].ToString() : string.Empty;
+            var clientId = context.Items[ClientIdItem] as string;
+            Diagnostics.Log.TokenRequestFailed(_logger, clientId, grantType, error.Error, error.Description);
+            Diagnostics.NetOidcTelemetry.TokenRequestsFailed.Add(1,
+                new KeyValuePair<string, object?>("grant_type", grantType),
+                new KeyValuePair<string, object?>("error", error.Error));
+            await _events.TokenRequestFailedAsync(new TokenRequestFailedEvent(
+                clientId, grantType, error.Error, error.Description, DateTimeOffset.UtcNow), ct);
+        }
+        return result;
+    }
+
+    private async Task<IResult> HandleCoreAsync(HttpContext context, CancellationToken ct)
     {
         if (!context.Request.HasFormContentType)
             return TokenError(OAuthError.InvalidRequest("Content-Type must be application/x-www-form-urlencoded"), 400);
@@ -90,6 +120,7 @@ public sealed class TokenEndpointHandler
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"NetOidc\"";
             return TokenError(OAuthError.InvalidClient(), 401);
         }
+        context.Items[ClientIdItem] = client.ClientId;
 
         // ── DPoP proof validation (RFC 9449) ────────────────────────────────────
         string? cnfJwkThumbprint = null;
@@ -99,15 +130,24 @@ public sealed class TokenEndpointHandler
             if (!opts.DPoPEnabled)
                 return TokenError(OAuthError.InvalidRequest("DPoP is not supported by this server"), 400);
 
-            cnfJwkThumbprint = await _dpopValidator.ValidateProofAsync(
+            var proof = await _dpopValidator.ValidateAsync(
                 dpopHeader,
                 context.Request.Method,
                 opts.Issuer.TrimEnd('/') + opts.TokenEndpoint,
                 accessToken: null,
                 clockSkewSeconds: opts.DPoPProofLifetimeSeconds);
 
-            if (cnfJwkThumbprint is null)
+            if (proof is null)
                 return TokenError(OAuthError.InvalidDPoPProof("DPoP proof is missing or invalid"), 400);
+
+            // RFC 9449 §8: when nonces are required, hand out a fresh one and ask for a retry.
+            if (_dpopNonces.IsRequired)
+            {
+                context.Response.Headers["DPoP-Nonce"] = _dpopNonces.Issue();
+                if (!_dpopNonces.IsValid(proof.Nonce))
+                    return TokenError(OAuthError.UseDPoPNonce("the DPoP proof must include the server-provided nonce"), 400);
+            }
+            cnfJwkThumbprint = proof.Thumbprint;
         }
 
         var isFapi2 = opts.FapiProfile is FapiProfile.Fapi2Security or FapiProfile.Fapi2MessageSigning or FapiProfile.FapiCiba;

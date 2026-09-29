@@ -8,6 +8,17 @@ public sealed class ProviderOptions
     /// <summary>Authorization server issuer URI (e.g. https://auth.example.com).</summary>
     public string Issuer { get; set; } = string.Empty;
 
+    // -- Keys --
+
+    /// <summary>
+    /// Signing and encryption keys (see <c>NetOidcBuilder.AddSigningKey</c>). When empty, keys
+    /// are generated at startup — development only: a Production host refuses to start.
+    /// </summary>
+    public IList<Jose.ProviderKey> Keys { get; set; } = [];
+
+    /// <summary>Algorithm used when a client registered none (default RS256).</summary>
+    public string DefaultSigningAlgorithm { get; set; } = "RS256";
+
     // -- Endpoint paths --
 
     public string DiscoveryEndpoint { get; set; } = "/.well-known/openid-configuration";
@@ -122,6 +133,13 @@ public sealed class ProviderOptions
     public IList<Scope> Scopes { get; set; } = [new Scope { Name = "openid" }];
 
     // -- Token lifetimes (seconds) --
+
+    /// <summary>
+    /// Default access-token format. <c>Jwt</c> (RFC 9068) can be validated by resource servers
+    /// locally; <c>Opaque</c> tokens are random references that must be introspected, which makes
+    /// revocation immediate and keeps token contents private. Clients may override it.
+    /// </summary>
+    public Abstractions.Models.TokenFormat AccessTokenFormat { get; set; } = Abstractions.Models.TokenFormat.Jwt;
 
     public int AccessTokenLifetimeSeconds { get; set; } = 3600;
     public int RefreshTokenLifetimeSeconds { get; set; } = 86400;
@@ -272,6 +290,21 @@ public sealed class ProviderOptions
 
     /// <summary>Allowed IAT drift for DPoP proofs in seconds (default 300 = 5 min).</summary>
     public int DPoPProofLifetimeSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Require DPoP proofs to carry a server-provided nonce (RFC 9449 §8). Clients learn the
+    /// nonce from a <c>use_dpop_nonce</c> error and the <c>DPoP-Nonce</c> response header.
+    /// </summary>
+    public bool DPoPRequireNonce { get; set; } = false;
+
+    /// <summary>How long a DPoP server nonce is accepted, in seconds (default 300).</summary>
+    public int DPoPNonceLifetimeSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Secret for DPoP nonces. Set the same value on every instance so nonces issued by one are
+    /// accepted by all; when null a per-process secret is used.
+    /// </summary>
+    public string? DPoPNonceSecret { get; set; }
 
     // ── Phase 5 — Mutual TLS (RFC 8705) ──────────────────────────────────────
 

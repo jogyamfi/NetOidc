@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using Microsoft.AspNetCore.Http.HttpResults;
+using NetOidc.Provider.Diagnostics;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -34,70 +37,95 @@ public static class EndpointRouteBuilderExtensions
         // revocation) — never to user-facing or registration endpoints.
         const string CorsPolicyName = "NetOidcCors";
 
+        // Every provider endpoint is traced and timed (see NetOidcTelemetry).
+        var group = endpoints.MapGroup(string.Empty).AddEndpointFilter(async (ctx, next) =>
+        {
+            var route = (ctx.HttpContext.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText
+                        ?? ctx.HttpContext.Request.Path.Value ?? string.Empty;
+            using var activity = NetOidcTelemetry.ActivitySource.StartActivity($"NetOidc {route}");
+            activity?.SetTag("http.route", route);
+            var started = Stopwatch.GetTimestamp();
+
+            var result = await next(ctx);
+
+            var status = result switch
+            {
+                IStatusCodeHttpResult { StatusCode: { } code } => code,
+                RedirectHttpResult => StatusCodes.Status302Found,
+                _ => StatusCodes.Status200OK,
+            };
+            activity?.SetTag("http.response.status_code", status);
+            if (status >= 400) activity?.SetStatus(ActivityStatusCode.Error);
+            NetOidcTelemetry.RequestDuration.Record(Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                new KeyValuePair<string, object?>("endpoint", route),
+                new KeyValuePair<string, object?>("status", status));
+            return result;
+        });
+
         IEndpointConventionBuilder WithCors(IEndpointConventionBuilder b) =>
             opts.CorsEnabled ? b.RequireCors(CorsPolicyName) : b;
 
         // Discovery
-        WithCors(endpoints.MapGet(opts.DiscoveryEndpoint, () =>
+        WithCors(group.MapGet(opts.DiscoveryEndpoint, () =>
             Results.Json(discovery.BuildDocument())));
 
-        WithCors(endpoints.MapGet(opts.JwksEndpoint, () =>
+        WithCors(group.MapGet(opts.JwksEndpoint, () =>
             Results.Json(discovery.BuildJwks())));
 
         // Authorization
         // OIDC Core §3.1.2.1: the authorization endpoint accepts GET and POST.
-        endpoints.MapMethods(opts.AuthorizationEndpoint, ["GET", "POST"],
+        group.MapMethods(opts.AuthorizationEndpoint, ["GET", "POST"],
             (AuthorizationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct));
 
         // Token
-        WithCors(endpoints.MapPost(opts.TokenEndpoint,
+        WithCors(group.MapPost(opts.TokenEndpoint,
             (TokenEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct)));
 
         // UserInfo (GET + POST per OIDC Core §5.3)
-        WithCors(endpoints.MapMethods(opts.UserInfoEndpoint, ["GET", "POST"],
+        WithCors(group.MapMethods(opts.UserInfoEndpoint, ["GET", "POST"],
             (UserInfoEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct)));
 
         // Introspection (RFC 7662)
-        endpoints.MapPost(opts.IntrospectionEndpoint,
+        group.MapPost(opts.IntrospectionEndpoint,
             (IntrospectionEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct));
 
         // Revocation (RFC 7009)
-        WithCors(endpoints.MapPost(opts.RevocationEndpoint,
+        WithCors(group.MapPost(opts.RevocationEndpoint,
             (RevocationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct)));
 
         // RP-Initiated Logout (active when LogoutEnabled)
         if (opts.LogoutEnabled)
         {
-            endpoints.MapMethods(opts.EndSessionEndpoint, ["GET", "POST"],
+            group.MapMethods(opts.EndSessionEndpoint, ["GET", "POST"],
                 (LogoutEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                     h.HandleAsync(ctx, ct));
         }
 
         // Pushed Authorization Request (RFC 9126, always mounted; handler enforces feature toggle)
-        endpoints.MapPost(opts.PushedAuthorizationEndpoint,
+        group.MapPost(opts.PushedAuthorizationEndpoint,
             (ParEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct));
 
         // Device Authorization (RFC 8628, always mounted; handler enforces feature toggle)
-        endpoints.MapPost(opts.DeviceAuthorizationEndpoint,
+        group.MapPost(opts.DeviceAuthorizationEndpoint,
             (DeviceAuthorizationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct));
 
-        endpoints.MapGet(opts.DeviceVerificationUri,
+        group.MapGet(opts.DeviceVerificationUri,
             (DeviceVerificationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleGetAsync(ctx, ct));
 
-        endpoints.MapPost(opts.DeviceVerificationUri,
+        group.MapPost(opts.DeviceVerificationUri,
             (DeviceVerificationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandlePostAsync(ctx, ct));
 
         // CIBA — Backchannel Authentication (always mounted; handler enforces feature toggle)
-        endpoints.MapPost(opts.BackchannelAuthenticationEndpoint,
+        group.MapPost(opts.BackchannelAuthenticationEndpoint,
             (CibaEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleAsync(ctx, ct));
 
@@ -105,21 +133,21 @@ public static class EndpointRouteBuilderExtensions
         if (opts.DcrEnabled)
         {
             var regPath = opts.RegistrationEndpoint;
-            endpoints.MapPost(regPath,
+            group.MapPost(regPath,
                 (DynamicRegistrationEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                     h.HandleCreateAsync(ctx, ct));
 
-            endpoints.MapGet(regPath + "/{clientId}",
+            group.MapGet(regPath + "/{clientId}",
                 (DynamicRegistrationEndpointHandler h, HttpContext ctx,
                  string clientId, CancellationToken ct) =>
                     h.HandleGetAsync(ctx, clientId, ct));
 
-            endpoints.MapMethods(regPath + "/{clientId}", ["PUT"],
+            group.MapMethods(regPath + "/{clientId}", ["PUT"],
                 (DynamicRegistrationEndpointHandler h, HttpContext ctx,
                  string clientId, CancellationToken ct) =>
                     h.HandleUpdateAsync(ctx, clientId, ct));
 
-            endpoints.MapDelete(regPath + "/{clientId}",
+            group.MapDelete(regPath + "/{clientId}",
                 (DynamicRegistrationEndpointHandler h, HttpContext ctx,
                  string clientId, CancellationToken ct) =>
                     h.HandleDeleteAsync(ctx, clientId, ct));
@@ -127,20 +155,20 @@ public static class EndpointRouteBuilderExtensions
 
         // ── Phase 8 — OpenID Federation 1.1 ──────────────────────────────────
         // Always mounted; handler returns 400 when FederationEnabled is false.
-        endpoints.MapGet("/.well-known/openid-federation",
+        group.MapGet("/.well-known/openid-federation",
             (FederationEndpointHandler h) => h.Handle());
 
         // ── Phase 8 — VCI (OID4VCI 1.0) ──────────────────────────────────────
         // Always mounted; handlers return 400 when VciEnabled is false.
-        endpoints.MapPost(opts.VciNonceEndpoint,
-            (VciEndpointHandler h, HttpContext ctx) => h.HandleNonce(ctx));
+        group.MapPost(opts.VciNonceEndpoint,
+            (VciEndpointHandler h, HttpContext ctx, CancellationToken ct) => h.HandleNonceAsync(ctx, ct));
 
-        endpoints.MapPost(opts.VciCredentialEndpoint,
+        group.MapPost(opts.VciCredentialEndpoint,
             (VciEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleCredentialAsync(ctx, ct));
 
         // Credential issuer metadata (OID4VCI §11.2)
-        endpoints.MapGet("/.well-known/openid-credential-issuer",
+        group.MapGet("/.well-known/openid-credential-issuer",
             (VciEndpointHandler h, HttpContext ctx) =>
             {
                 var o = ctx.RequestServices.GetRequiredService<IOptions<ProviderOptions>>().Value;

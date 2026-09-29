@@ -106,7 +106,7 @@ public sealed class GrantSecurityTests
     public async Task TokenExchange_RejectsExpiredIdToken()
     {
         await using var app = TestWebApp.Create(o => o.TokenExchangeEnabled = true);
-        var keys = app.Services.GetRequiredService<SigningKeyProvider>();
+        var keys = app.Services.GetRequiredService<KeyRing>();
         var expired = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = "https://auth.test.example.com",

@@ -49,7 +49,7 @@ public sealed class VciEndpointHandler
     private static IResult Error(OAuthError err, int status) => Results.Json(err, statusCode: status);
 
     /// <summary><c>POST /connect/nonce</c> — issues a fresh c_nonce.</summary>
-    public IResult HandleNonce(HttpContext context)
+    public async Task<IResult> HandleNonceAsync(HttpContext context, CancellationToken ct)
     {
         if (!_options.Value.VciEnabled)
             return Error(OAuthError.InvalidRequest("VCI is not enabled"), 400);
@@ -58,7 +58,7 @@ public sealed class VciEndpointHandler
         if (!_throttle.TryAcquireUnauthenticated(context))
             return RequestThrottle.TooManyRequests(context);
 
-        var nonce = _vciService.IssueNonce();
+        var nonce = await _vciService.IssueNonceAsync(ct);
         return Results.Json(new
         {
             c_nonce = nonce,
@@ -253,7 +253,7 @@ public sealed class VciEndpointHandler
 
         // A fresh, single-use c_nonce defeats proof replay.
         if (!token.TryGetPayloadValue<string>("nonce", out var nonce) || string.IsNullOrEmpty(nonce) ||
-            !_vciService.ConsumeNonce(nonce))
+            !await _vciService.ConsumeNonceAsync(nonce))
             return (null, Error(OAuthError.InvalidNonce("proof JWT must contain a valid c_nonce"), 400));
 
         return (embedded.Value.Json, null);
