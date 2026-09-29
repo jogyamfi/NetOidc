@@ -29,6 +29,7 @@ public sealed class TokenEndpointHandler
     private const string GrantTypeJwtBearer = "urn:ietf:params:oauth:grant-type:jwt-bearer";
     private const string GrantTypeDeviceCode = "urn:ietf:params:oauth:grant-type:device_code";
     private const string GrantTypeCiba = "urn:ietf:params:oauth:grant-type:ciba";
+    private const string GrantTypePreAuthorizedCode = Vci.CredentialOfferService.PreAuthorizedCodeGrantType;
 
     private readonly IOptions<ProviderOptions> _options;
     private readonly ClientAuthenticator _clientAuthenticator;
@@ -45,6 +46,7 @@ public sealed class TokenEndpointHandler
     private readonly GrantService _grants;
     private readonly ILogger<TokenEndpointHandler> _logger;
     private readonly IProviderEventSink _events;
+    private readonly Vci.CredentialOfferService _credentialOffers;
 
     public TokenEndpointHandler(
         IOptions<ProviderOptions> options,
@@ -61,8 +63,10 @@ public sealed class TokenEndpointHandler
         GrantService grants,
         ILogger<TokenEndpointHandler> logger,
         DPoPNonceService dpopNonces,
-        IProviderEventSink events)
+        IProviderEventSink events,
+        Vci.CredentialOfferService credentialOffers)
     {
+        _credentialOffers = credentialOffers;
         _events = events;
         _dpopNonces = dpopNonces;
         _options = options;
@@ -114,7 +118,9 @@ public sealed class TokenEndpointHandler
         var form = await context.Request.ReadFormAsync(ct);
         var opts = _options.Value;
 
-        var client = await _clientAuthenticator.AuthenticateAsync(context, form, ct);
+        var client = IsAnonymousPreAuthorizedRequest(context, form, opts)
+            ? AnonymousWallet
+            : await _clientAuthenticator.AuthenticateAsync(context, form, ct);
         if (client is null)
         {
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"NetOidc\"";
@@ -181,6 +187,8 @@ public sealed class TokenEndpointHandler
                 => await HandleDeviceCodeAsync(form, client, binding, ct),
             GrantTypeCiba when opts.CibaEnabled
                 => await HandleCibaAsync(form, client, binding, ct),
+            GrantTypePreAuthorizedCode when opts.VciEnabled
+                => await HandlePreAuthorizedCodeAsync(form, client, binding, ct),
             _ => TokenError(OAuthError.UnsupportedGrantType(), 400),
         };
     }
@@ -627,6 +635,65 @@ public sealed class TokenEndpointHandler
         return Results.Json(BuildTokenBody(issued), statusCode: 200);
     }
 
+    // ── Pre-authorized code grant (OID4VCI 1.0 §6.1) ───────────────────────────
+
+    /// <summary>The client of wallets using anonymous pre-authorized access.</summary>
+    private static readonly Client AnonymousWallet = new()
+    {
+        ClientId = Vci.CredentialOfferService.AnonymousClientId,
+        TokenEndpointAuthMethod = "none",
+        AllowedGrantTypes = [GrantTypePreAuthorizedCode],
+        RequireConsent = false,
+    };
+
+    /// <summary>
+    /// A pre-authorized code request carrying no client identification at all, when the issuer
+    /// allows anonymous access. Anything that names a client is authenticated as usual.
+    /// </summary>
+    private static bool IsAnonymousPreAuthorizedRequest(HttpContext context, IFormCollection form, ProviderOptions opts) =>
+        opts.VciEnabled && opts.VciPreAuthorizedAnonymousAccess &&
+        form["grant_type"].ToString() == GrantTypePreAuthorizedCode &&
+        string.IsNullOrEmpty(context.Request.Headers.Authorization.ToString()) &&
+        string.IsNullOrEmpty(form["client_id"].ToString()) &&
+        string.IsNullOrEmpty(form["client_assertion"].ToString()) &&
+        context.Connection.ClientCertificate is null;
+
+    private async Task<IResult> HandlePreAuthorizedCodeAsync(
+        IFormCollection form, Client client, Binding binding, CancellationToken ct)
+    {
+        if (!client.AllowedGrantTypes.Contains(GrantTypePreAuthorizedCode))
+            return TokenError(OAuthError.UnauthorizedClient("pre-authorized_code grant not allowed for this client"), 400);
+
+        var code = form["pre-authorized_code"].ToString();
+        if (string.IsNullOrEmpty(code))
+            return TokenError(OAuthError.InvalidRequest("pre-authorized_code is required"), 400);
+
+        var (redeemed, error) = await _credentialOffers.RedeemAsync(code, form["tx_code"].ToString(), ct);
+        if (error is not null)
+            return TokenError(error, 400);
+
+        // The token carries each offered credential as authorization details (§6.2) and the
+        // configurations' scopes; it never carries an ID token.
+        var opts = _options.Value;
+        var scopes = opts.VciCredentialConfigurations
+            .Where(c => redeemed!.CredentialConfigurationIds.Contains(c.Id) && c.Scope is not null)
+            .Select(c => c.Scope!).Distinct().ToList();
+
+        var issued = await _issuer.IssueAsync(new TokenIssuanceRequest
+        {
+            Client = client,
+            GrantType = GrantTypePreAuthorizedCode,
+            Subject = redeemed!.Subject,
+            Scopes = scopes,
+            AuthorizationDetailsJson = Vci.CredentialAuthorizationDetails.Build(redeemed.CredentialConfigurationIds),
+            CnfJwkThumbprint = binding.Jkt,
+            CnfX5tS256 = binding.X5tS256,
+            IncludeRefreshToken = true,
+        }, ct);
+
+        return Results.Json(BuildTokenBody(issued), statusCode: 200);
+    }
+
     // ── CIBA poll/ping grant (OpenID CIBA Core 1.0 §10) ───────────────────────
 
     private async Task<IResult> HandleCibaAsync(
@@ -760,6 +827,9 @@ public sealed class TokenEndpointHandler
         };
         if (issued.RefreshToken is not null) body["refresh_token"] = issued.RefreshToken;
         if (issued.IdToken is not null) body["id_token"] = issued.IdToken;
+        // RFC 9396 §7: the granted authorization details are returned with the token.
+        if (issued.AccessTokenRecord.AuthorizationDetailsJson is { } details)
+            body["authorization_details"] = System.Text.Json.JsonDocument.Parse(details).RootElement.Clone();
         return body;
     }
 

@@ -60,9 +60,9 @@ internal sealed class KeyRingStartupCheck : IHostedService
 
         foreach (var key in keys)
         {
-            var supported = key.Use == ProviderKeyUse.Signing
-                ? KeyRing.SupportedSigningAlgorithms
-                : KeyRing.SupportedEncryptionAlgorithms;
+            var supported = key.Use == ProviderKeyUse.Encryption
+                ? KeyRing.SupportedEncryptionAlgorithms
+                : KeyRing.SupportedSigningAlgorithms;
             if (!supported.Contains(key.Algorithm))
             {
                 yield return $"Key '{key.KeyId}' uses unsupported {key.Use.ToString().ToLowerInvariant()} algorithm '{key.Algorithm}'.";

@@ -17,7 +17,7 @@ public sealed class ProviderOptionsValidator : IValidateOptions<ProviderOptions>
     private static readonly HashSet<string> KnownAuthMethods =
     [
         "client_secret_basic", "client_secret_post", "client_secret_jwt", "private_key_jwt",
-        "tls_client_auth", "self_signed_tls_client_auth", "none",
+        "tls_client_auth", "self_signed_tls_client_auth", "none", "attest_jwt_client_auth",
     ];
 
     private readonly IHostEnvironment? _environment;
@@ -80,6 +80,16 @@ public sealed class ProviderOptionsValidator : IValidateOptions<ProviderOptions>
         Positive(nameof(opts.ClientAssertionMaxLifetimeSeconds), opts.ClientAssertionMaxLifetimeSeconds);
         Positive(nameof(opts.DeviceUserCodeMaxFailedAttempts), opts.DeviceUserCodeMaxFailedAttempts);
         Positive(nameof(opts.DeviceUserCodeFailureWindowSeconds), opts.DeviceUserCodeFailureWindowSeconds);
+        Positive(nameof(opts.VciPreAuthorizedCodeLifetimeSeconds), opts.VciPreAuthorizedCodeLifetimeSeconds);
+        Positive(nameof(opts.VciTxCodeMaxAttempts), opts.VciTxCodeMaxAttempts);
+        Positive(nameof(opts.VciBatchSize), opts.VciBatchSize);
+        Positive(nameof(opts.VciDeferredTransactionLifetimeSeconds), opts.VciDeferredTransactionLifetimeSeconds);
+        Positive(nameof(opts.VciNotificationLifetimeSeconds), opts.VciNotificationLifetimeSeconds);
+        Positive(nameof(opts.FederationEntityStatementLifetimeSeconds), opts.FederationEntityStatementLifetimeSeconds);
+        Positive(nameof(opts.FederationMaxChainLength), opts.FederationMaxChainLength);
+        Positive(nameof(opts.FederationMaxStatementBytes), opts.FederationMaxStatementBytes);
+        Positive(nameof(opts.ClientIdMetadataDocumentMaxBytes), opts.ClientIdMetadataDocumentMaxBytes);
+        NonNegative(nameof(opts.ClientIdMetadataDocumentCacheSeconds), opts.ClientIdMetadataDocumentCacheSeconds);
         NonNegative(nameof(opts.DevicePollingIntervalSeconds), opts.DevicePollingIntervalSeconds);
         NonNegative(nameof(opts.CibaPollingIntervalSeconds), opts.CibaPollingIntervalSeconds);
         NonNegative(nameof(opts.UnauthenticatedRequestsPerMinute), opts.UnauthenticatedRequestsPerMinute);
@@ -104,6 +114,10 @@ public sealed class ProviderOptionsValidator : IValidateOptions<ProviderOptions>
             (nameof(opts.BackchannelAuthenticationEndpoint), opts.BackchannelAuthenticationEndpoint),
             (nameof(opts.VciCredentialEndpoint), opts.VciCredentialEndpoint),
             (nameof(opts.VciNonceEndpoint), opts.VciNonceEndpoint),
+            (nameof(opts.VciCredentialOfferEndpoint), opts.VciCredentialOfferEndpoint),
+            (nameof(opts.VciDeferredCredentialEndpoint), opts.VciDeferredCredentialEndpoint),
+            (nameof(opts.VciNotificationEndpoint), opts.VciNotificationEndpoint),
+            (nameof(opts.FederationRegistrationEndpoint), opts.FederationRegistrationEndpoint),
             (nameof(opts.LoginPath), opts.LoginPath),
             (nameof(opts.ConsentPath), opts.ConsentPath),
             (nameof(opts.LogoutConfirmationPath), opts.LogoutConfirmationPath),
@@ -123,6 +137,28 @@ public sealed class ProviderOptionsValidator : IValidateOptions<ProviderOptions>
 
         if (opts.CibaEnabled && opts.ProcessBackchannelAuthenticationRequest is null)
             errors.Add("CibaEnabled requires ProcessBackchannelAuthenticationRequest to start out-of-band authentication.");
+
+        if (opts.FederationEnabled)
+        {
+            foreach (var (anchor, jwks) in opts.FederationTrustAnchors)
+            {
+                if (!Uri.TryCreate(anchor, UriKind.Absolute, out var anchorUri) || anchorUri.Scheme != Uri.UriSchemeHttps)
+                    errors.Add($"FederationTrustAnchors entry '{anchor}' must be an https entity identifier.");
+                if (Federation.EntityStatement.TryJwks(jwks) is not { Keys.Count: > 0 })
+                    errors.Add($"FederationTrustAnchors entry '{anchor}' must map to a JWKS with at least one key.");
+            }
+            // Automatically registered RPs authenticate every authorization request with a
+            // request object, so they cannot work without JAR.
+            if (opts.FederationAutomaticRegistrationEnabled && opts.FederationTrustAnchors.Count > 0 && !opts.JarEnabled)
+                errors.Add("FederationAutomaticRegistrationEnabled requires JarEnabled.");
+        }
+
+        foreach (var (attester, jwks) in opts.ClientAttestationTrustedAttesters)
+            if (Federation.EntityStatement.TryJwks(jwks) is not { Keys.Count: > 0 })
+                errors.Add($"ClientAttestationTrustedAttesters entry '{attester}' must map to a JWKS with at least one key.");
+        if (opts.StaticClients.Any(c => c.TokenEndpointAuthMethod == "attest_jwt_client_auth") &&
+            opts.ClientAttestationTrustedAttesters.Count == 0)
+            errors.Add("attest_jwt_client_auth clients require ClientAttestationTrustedAttesters.");
 
         if (opts.RequirePushedAuthorization && !opts.PushedAuthorizationEnabled)
             errors.Add("RequirePushedAuthorization requires PushedAuthorizationEnabled.");
@@ -203,9 +239,25 @@ public sealed class ProviderOptionsValidator : IValidateOptions<ProviderOptions>
                     errors.Add($"client '{id}': unknown response type '{responseType}'.");
             }
 
-            foreach (var alg in new[] { client.IdTokenSignedResponseAlg, client.AuthorizationSignedResponseAlg })
+            foreach (var alg in new[] { client.IdTokenSignedResponseAlg, client.AuthorizationSignedResponseAlg, client.UserInfoSignedResponseAlg })
                 if (alg is not null && !Jose.KeyRing.SupportedSigningAlgorithms.Contains(alg))
                     errors.Add($"client '{id}': signing algorithm '{alg}' is not supported.");
+
+            foreach (var (alg, enc) in new[]
+            {
+                (client.IdTokenEncryptedResponseAlg, client.IdTokenEncryptedResponseEnc),
+                (client.UserInfoEncryptedResponseAlg, client.UserInfoEncryptedResponseEnc),
+            })
+            {
+                if (alg is not null && !Jose.KeyRing.SupportedEncryptionAlgorithms.Contains(alg))
+                    errors.Add($"client '{id}': encryption algorithm '{alg}' is not supported.");
+                if (enc is not null && !Jose.KeyRing.SupportedContentEncryptionAlgorithms.Contains(enc))
+                    errors.Add($"client '{id}': content encryption '{enc}' is not supported.");
+                if (enc is not null && alg is null)
+                    errors.Add($"client '{id}': an encrypted response enc requires the matching alg.");
+                if (alg is not null && string.IsNullOrEmpty(client.JwksJson))
+                    errors.Add($"client '{id}': encrypted responses require JwksJson with an encryption key.");
+            }
         }
     }
 }

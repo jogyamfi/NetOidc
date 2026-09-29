@@ -23,7 +23,9 @@ public sealed class ConfiguredKeyStore : IKeyStore, IDisposable
         if (!keys.Any(k => k.Use == ProviderKeyUse.Signing))
             keys.Add(Generate(ProviderKeyUse.Signing, SecurityAlgorithms.RsaSha256));
         if (!keys.Any(k => k.Use == ProviderKeyUse.Encryption))
-            keys.Add(Generate(ProviderKeyUse.Encryption, "RSA-OAEP-256"));
+            keys.Add(Generate(ProviderKeyUse.Encryption, "RSA-OAEP"));
+        if (options.Value.FederationEnabled && !keys.Any(k => k.Use == ProviderKeyUse.Federation))
+            keys.Add(Generate(ProviderKeyUse.Federation, SecurityAlgorithms.RsaSha256));
 
         _keys = keys;
     }
@@ -34,7 +36,12 @@ public sealed class ConfiguredKeyStore : IKeyStore, IDisposable
     {
         var rsa = RSA.Create(2048);
         _generated.Add(rsa);
-        var prefix = use == ProviderKeyUse.Encryption ? "enc-" : string.Empty;
+        var prefix = use switch
+        {
+            ProviderKeyUse.Encryption => "enc-",
+            ProviderKeyUse.Federation => "fed-",
+            _ => string.Empty,
+        };
         return new ProviderKey
         {
             Key = new RsaSecurityKey(rsa) { KeyId = prefix + Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(16)) },

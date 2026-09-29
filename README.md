@@ -110,8 +110,10 @@ builder.Services.AddNetOidc(options => { /* … */ })
     // Signing keys: register the successor with a future notBefore to publish it ahead of use.
     .AddSigningCertificate(signingCertificate)                       // RS256 by default
     .AddSigningKey(new ECDsaSecurityKey(ecKey), "ES256", notBefore: rotationDate)
-    // Decrypts request objects encrypted to the provider.
-    .AddEncryptionKey(new RsaSecurityKey(rsaKey));
+    // Decrypts request objects encrypted to the provider (RSA-OAEP).
+    .AddEncryptionKey(new RsaSecurityKey(rsaKey))
+    // Signs the OpenID Federation entity configuration (only when FederationEnabled).
+    .AddFederationKey(new RsaSecurityKey(federationKey));
     // Or source keys from a vault/HSM/KMS: .UseKeyStore<MyKeyStore>()
 ```
 
@@ -141,8 +143,12 @@ Observability: traces and metrics are published under `NetOidc.Provider`
 | `/connect/ciba` | POST | OIDC CIBA | `CibaEnabled` |
 | `/.well-known/openid-federation` | GET | OpenID Federation 1.1 | `FederationEnabled` |
 | `/.well-known/openid-credential-issuer` | GET | OID4VCI 1.0 | `VciEnabled` |
+| `/connect/federation_registration` | POST | OpenID Federation 1.1 (explicit registration) | `FederationEnabled` |
 | `/connect/credential` | POST | OID4VCI 1.0 | `VciEnabled` |
 | `/connect/nonce` | POST | OID4VCI 1.0 | `VciEnabled` |
+| `/connect/credential_offer/{id}` | GET | OID4VCI 1.0 | `VciEnabled` |
+| `/connect/deferred_credential` | POST | OID4VCI 1.0 | `RetrieveDeferredCredential` set |
+| `/connect/notification` | POST | OID4VCI 1.0 | `OnCredentialNotification` set |
 
 ## Feature flags (selected)
 
@@ -164,8 +170,28 @@ options.DeviceFlowEnabled = true;
 options.CibaEnabled = true;
 options.FapiProfile = FapiProfile.Fapi2Security;
 options.FederationEnabled = true;
+options.FederationTrustAnchors["https://ta.example.org"] = trustAnchorJwksJson;
 options.VciEnabled = true;
+options.VciPreAuthorizedAnonymousAccess = true;
+options.ClientIdMetadataDocumentEnabled = true;
+options.ClientAttestationTrustedAttesters["https://attester.example.com"] = attesterJwksJson;
 options.CorsEnabled = true;
+```
+
+Credential issuance (OID4VCI) is driven by hooks; offers are created by the host after it has
+authenticated the End-User:
+
+```csharp
+options.IssueCredential = async (request, ct) =>
+    CredentialIssuanceResult.Issued([.. request.HolderPublicJwks.Select(jwk => MyIssuer.Sign(request, jwk))]);
+
+var offer = await app.Services.GetRequiredService<CredentialOfferService>().CreateAsync(new()
+{
+    CredentialConfigurationIds = ["UniversityDegree"],
+    PreAuthorizedSubject = userId,
+    TxCode = new TxCodeOptions(Length: 6),   // deliver offer.TxCode to the End-User out of band
+});
+// Render offer.OfferUri (openid-credential-offer://…) as a QR code.
 ```
 
 ## Custom adapters
@@ -233,7 +259,7 @@ The provider starts at `http://localhost:5001`. Demo credentials: `alice` / `pas
 dotnet test
 ```
 
-191 tests covering all phases: authorization code, PKCE, implicit, hybrid, client credentials, refresh tokens, introspection, revocation, DCR, logout, PAR, JAR, JARM, token exchange, JWT bearer, DPoP, mTLS, device flow, CIBA, FAPI profiles, federation, VCI, CORS, events.
+521 tests covering all phases: authorization code, PKCE, implicit, hybrid, client credentials, refresh tokens, introspection, revocation, DCR (including RP Metadata Choices), logout, PAR, JAR (signed and encrypted), JARM, token exchange, JWT bearer, DPoP, mTLS, attestation-based client auth, device flow, CIBA, FAPI profiles, federation trust chains and registration, OID4VCI (offers, pre-authorized codes, deferred issuance, notifications), Client ID Metadata Documents, signed/encrypted UserInfo, discovery snapshot, CORS, events.
 
 ## License
 

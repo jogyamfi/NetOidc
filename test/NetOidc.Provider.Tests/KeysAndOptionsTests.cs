@@ -35,7 +35,7 @@ public sealed class KeysAndOptionsTests
     private static ProviderKey EncKey() => new()
     {
         Key = new RsaSecurityKey(RSA.Create(2048)) { KeyId = "enc" },
-        Algorithm = "RSA-OAEP-256",
+        Algorithm = "RSA-OAEP",
         Use = ProviderKeyUse.Encryption,
     };
 

@@ -72,4 +72,44 @@ public sealed class ClientRegistrationResponse
     [JsonPropertyName("post_logout_redirect_uris")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? PostLogoutRedirectUris { get; init; }
+
+    [JsonPropertyName("jwks")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public System.Text.Json.JsonElement? Jwks { get; init; }
+
+    [JsonPropertyName("id_token_signed_response_alg")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IdTokenSignedResponseAlg { get; init; }
+
+    [JsonPropertyName("id_token_encrypted_response_alg")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IdTokenEncryptedResponseAlg { get; init; }
+
+    [JsonPropertyName("id_token_encrypted_response_enc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IdTokenEncryptedResponseEnc { get; init; }
+
+    [JsonPropertyName("userinfo_signed_response_alg")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? UserInfoSignedResponseAlg { get; init; }
+
+    [JsonPropertyName("userinfo_encrypted_response_alg")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? UserInfoEncryptedResponseAlg { get; init; }
+
+    [JsonPropertyName("userinfo_encrypted_response_enc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? UserInfoEncryptedResponseEnc { get; init; }
+
+    [JsonPropertyName("request_object_signing_alg")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RequestObjectSigningAlg { get; init; }
+
+    [JsonPropertyName("authorization_signed_response_alg")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AuthorizationSignedResponseAlg { get; init; }
+
+    [JsonPropertyName("require_signed_request_object")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool RequireSignedRequestObject { get; init; }
 }

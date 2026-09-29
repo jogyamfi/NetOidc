@@ -17,7 +17,7 @@ namespace NetOidc.Provider.Token;
 /// <summary>
 /// Extracts and validates client credentials from an HTTP request.
 /// Supports: client_secret_basic, client_secret_post, private_key_jwt,
-/// client_secret_jwt, tls_client_auth, self_signed_tls_client_auth.
+/// client_secret_jwt, tls_client_auth, self_signed_tls_client_auth, attest_jwt_client_auth.
 /// </summary>
 public sealed class ClientAuthenticator
 {
@@ -43,12 +43,14 @@ public sealed class ClientAuthenticator
     private readonly IReplayCache _replayCache;
     private readonly ILogger<ClientAuthenticator> _logger;
     private readonly IProviderEventSink _events;
+    private readonly ClientAttestationValidator _attestations;
     private readonly JsonWebTokenHandler _jwtHandler = new();
 
     public ClientAuthenticator(
         IClientStore clientStore, IOptions<ProviderOptions> options, IReplayCache replayCache,
-        ILogger<ClientAuthenticator> logger, IProviderEventSink events)
+        ILogger<ClientAuthenticator> logger, IProviderEventSink events, ClientAttestationValidator attestations)
     {
+        _attestations = attestations;
         _logger = logger;
         _events = events;
         _clientStore = clientStore;
@@ -121,10 +123,23 @@ public sealed class ClientAuthenticator
         var hasAssertion = !string.IsNullOrEmpty(assertion) ||
                            !string.IsNullOrEmpty(form["client_assertion_type"].ToString());
         var formClientId = form["client_id"].ToString();
+        var hasAttestation = ClientAttestationValidator.IsPresent(context);
 
         // RFC 6749 §2.3: a client MUST NOT use more than one authentication method per request.
-        if ((hasBasic ? 1 : 0) + (hasFormSecret ? 1 : 0) + (hasAssertion ? 1 : 0) > 1)
+        if ((hasBasic ? 1 : 0) + (hasFormSecret ? 1 : 0) + (hasAssertion ? 1 : 0) + (hasAttestation ? 1 : 0) > 1)
             return null;
+
+        // ── attest_jwt_client_auth ──────────────────────────────────────────
+        if (hasAttestation)
+        {
+            var issuer = opts.Issuer.TrimEnd('/');
+            var attestedId = await _attestations.ValidateAsync(
+                context, [issuer, issuer + context.Request.Path.Value], ct);
+            if (attestedId is null || (!string.IsNullOrEmpty(formClientId) && formClientId != attestedId))
+                return null;
+            var client = await _clientStore.FindClientAsync(attestedId, ct);
+            return client?.TokenEndpointAuthMethod == ClientAttestationValidator.AuthMethod ? client : null;
+        }
 
         // ── client_secret_basic ─────────────────────────────────────────────
         if (hasBasic)

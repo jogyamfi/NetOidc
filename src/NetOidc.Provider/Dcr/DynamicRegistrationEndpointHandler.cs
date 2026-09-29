@@ -28,14 +28,20 @@ public sealed class DynamicRegistrationEndpointHandler
     private readonly RequestThrottle _throttle;
     private readonly ILogger<DynamicRegistrationEndpointHandler> _logger;
     private readonly Abstractions.Events.IProviderEventSink _events;
+    private readonly SafeHttpFetcher _fetcher;
+    private readonly Jose.KeyRing _keys;
 
     public DynamicRegistrationEndpointHandler(
         IOptions<ProviderOptions> options,
         IDynamicClientStore clientStore,
         RequestThrottle throttle,
         ILogger<DynamicRegistrationEndpointHandler> logger,
-        Abstractions.Events.IProviderEventSink events)
+        Abstractions.Events.IProviderEventSink events,
+        SafeHttpFetcher fetcher,
+        Jose.KeyRing keys)
     {
+        _fetcher = fetcher;
+        _keys = keys;
         _events = events;
         _logger = logger;
         _throttle = throttle;
@@ -80,7 +86,7 @@ public sealed class DynamicRegistrationEndpointHandler
         if (req is null)
             return DcrError(OAuthError.InvalidRequest("Empty registration request"), 400);
 
-        var (client, registrationToken, validationError) = BuildClient(opts, req, clientId: null);
+        var (client, registrationToken, validationError) = await BuildClientAsync(opts, req, existing: null, ct);
         if (validationError is not null)
             return DcrError(validationError, 400);
 
@@ -127,52 +133,18 @@ public sealed class DynamicRegistrationEndpointHandler
             return DcrError(OAuthError.InvalidRequest("Empty update request"), 400);
 
         var opts = _options.Value;
-        var (updated, newRegistrationToken, validationError) = BuildClient(opts, req, clientId: existing.ClientId);
+        var (final, registrationToken, validationError) = await BuildClientAsync(opts, req, existing, ct);
         if (validationError is not null)
             return DcrError(validationError, 400);
 
-        // Preserve the existing registration token hash unless rotation is enabled.
-        string? registrationToken = null;
-        string? tokenHash = existing.RegistrationAccessTokenHash;
-        if (opts.DcrRotateRegistrationTokens)
-        {
-            registrationToken = newRegistrationToken;
-            tokenHash = HashToken(registrationToken!);
-        }
-
-        // Rebuild with preserved immutable fields (Client is a class, not a record).
-        var final = new Client
-        {
-            ClientId = existing.ClientId,
-            ClientSecret = updated!.ClientSecret,
-            RedirectUris = updated.RedirectUris,
-            AllowedGrantTypes = updated.AllowedGrantTypes,
-            AllowedScopes = updated.AllowedScopes,
-            TokenEndpointAuthMethod = updated.TokenEndpointAuthMethod,
-            RequirePkce = updated.RequirePkce,
-            ResponseTypes = updated.ResponseTypes,
-            RequireConsent = true,
-            IsDynamic = true,
-            RegistrationAccessTokenHash = tokenHash,
-            ClientIdIssuedAt = existing.ClientIdIssuedAt,
-            ClientSecretExpiresAt = updated.ClientSecretExpiresAt,
-            ClientName = updated.ClientName,
-            ClientUri = updated.ClientUri,
-            LogoUri = updated.LogoUri,
-            Contacts = updated.Contacts,
-            BackChannelLogoutUri = updated.BackChannelLogoutUri,
-            BackChannelLogoutSessionRequired = updated.BackChannelLogoutSessionRequired,
-            PostLogoutRedirectUris = updated.PostLogoutRedirectUris,
-        };
-
         if (opts.ValidateDynamicClient is not null)
         {
-            if (await RunValidationHookAsync(opts, final, ct) is { } hookError)
+            if (await RunValidationHookAsync(opts, final!, ct) is { } hookError)
                 return hookError;
         }
 
-        await _clientStore.StoreClientAsync(final, ct);
-        await RecordChangeAsync(final.ClientId, "updated", ct);
+        await _clientStore.StoreClientAsync(final!, ct);
+        await RecordChangeAsync(final!.ClientId, "updated", ct);
 
         return Results.Json(BuildResponse(opts, final, registrationToken));
     }
@@ -215,13 +187,67 @@ public sealed class DynamicRegistrationEndpointHandler
         return CryptographicEquals(incoming, client.RegistrationAccessTokenHash) ? client : null;
     }
 
-    private static (Client? Client, string? RegistrationToken, OAuthError? Error) BuildClient(
-        ProviderOptions opts, ClientRegistrationRequest req, string? clientId)
+    /// <summary>Token endpoint authentication methods dynamic clients may register.</summary>
+    private static readonly string[] DcrAuthMethods =
+        ["client_secret_basic", "client_secret_post", "client_secret_jwt", "private_key_jwt", "none"];
+
+    /// <summary>
+    /// Builds a client from registration metadata. On update (<paramref name="existing"/> set) the
+    /// client id and issue time are kept, and the registration access token unless rotation is on;
+    /// the returned token is then <c>null</c>.
+    /// </summary>
+    private async Task<(Client? Client, string? RegistrationToken, OAuthError? Error)> BuildClientAsync(
+        ProviderOptions opts, ClientRegistrationRequest req, Client? existing, CancellationToken ct)
     {
-        var authMethod = req.TokenEndpointAuthMethod ?? "client_secret_basic";
-        if (authMethod is not ("client_secret_basic" or "client_secret_post" or "none"))
-            return (null, null, OAuthError.InvalidClientMetadata(
-                $"Unsupported token_endpoint_auth_method: {authMethod}"));
+        var (authMethod, authError) = Choose("token_endpoint_auth_method", req.TokenEndpointAuthMethod,
+            req.TokenEndpointAuthMethodsSupported, DcrAuthMethods.Contains, "client_secret_basic");
+        if (authError is not null)
+            return (null, null, authError);
+
+        // ── Client keys (RFC 7591 §2): inline jwks or a jwks_uri, never both ──
+        if (req.Jwks is not null && req.JwksUri is not null)
+            return (null, null, OAuthError.InvalidClientMetadata("jwks and jwks_uri must not both be present"));
+        string? jwks = null;
+        if (req.Jwks is { } inline)
+            jwks = inline.ValueKind == System.Text.Json.JsonValueKind.Object ? inline.GetRawText() : null;
+        else if (req.JwksUri is not null)
+        {
+            if (ClientMetadataValidator.ValidateWebUri("jwks_uri", req.JwksUri) is { } jwksUriError)
+                return (null, null, OAuthError.InvalidClientMetadata(jwksUriError));
+            // The key set is fetched once, at registration; clients rotate keys with an update.
+            jwks = (await _fetcher.GetAsync(req.JwksUri, MaxJwksBytes, "application/json", ct))?.Content;
+            if (jwks is null)
+                return (null, null, OAuthError.InvalidClientMetadata("jwks_uri could not be fetched"));
+        }
+        if ((req.Jwks is not null || req.JwksUri is not null) && !IsPublicKeySet(jwks))
+            return (null, null, OAuthError.InvalidClientMetadata("jwks must be a JWK Set of public keys"));
+        if (authMethod == "private_key_jwt" && jwks is null)
+            return (null, null, OAuthError.InvalidClientMetadata("private_key_jwt requires jwks or jwks_uri"));
+
+        // ── Algorithms: the provider signs with keys it holds; the client signs and decrypts ──
+        bool CanSign(string alg) => _keys.CanSignWith(alg);
+        bool ClientCanSign(string alg) => Jose.KeyRing.SupportedSigningAlgorithms.Contains(alg);
+        bool KeyAlg(string alg) => Jose.KeyRing.SupportedEncryptionAlgorithms.Contains(alg);
+        bool ContentAlg(string enc) => Jose.KeyRing.SupportedContentEncryptionAlgorithms.Contains(enc);
+
+        var (idTokenAlg, e1) = Choose("id_token_signed_response_alg", req.IdTokenSignedResponseAlg, req.IdTokenSigningAlgValuesSupported, CanSign);
+        var (userInfoAlg, e2) = Choose("userinfo_signed_response_alg", req.UserInfoSignedResponseAlg, req.UserInfoSigningAlgValuesSupported, CanSign);
+        var (authorizationAlg, e3) = Choose("authorization_signed_response_alg", req.AuthorizationSignedResponseAlg, req.AuthorizationSigningAlgValuesSupported, CanSign);
+        var (requestObjectAlg, e4) = Choose("request_object_signing_alg", req.RequestObjectSigningAlg, req.RequestObjectSigningAlgValuesSupported, ClientCanSign);
+        var (idTokenEncAlg, e5) = Choose("id_token_encrypted_response_alg", req.IdTokenEncryptedResponseAlg, req.IdTokenEncryptionAlgValuesSupported, KeyAlg);
+        var (idTokenEnc, e6) = Choose("id_token_encrypted_response_enc", req.IdTokenEncryptedResponseEnc, req.IdTokenEncryptionEncValuesSupported, ContentAlg);
+        var (userInfoEncAlg, e7) = Choose("userinfo_encrypted_response_alg", req.UserInfoEncryptedResponseAlg, req.UserInfoEncryptionAlgValuesSupported, KeyAlg);
+        var (userInfoEnc, e8) = Choose("userinfo_encrypted_response_enc", req.UserInfoEncryptedResponseEnc, req.UserInfoEncryptionEncValuesSupported, ContentAlg);
+        if (new[] { e1, e2, e3, e4, e5, e6, e7, e8 }.FirstOrDefault(e => e is not null) is { } algError)
+            return (null, null, algError);
+
+        // OIDC Registration §2: an enc without its alg is meaningless; alg alone defaults enc.
+        if ((idTokenEnc is not null && idTokenEncAlg is null) || (userInfoEnc is not null && userInfoEncAlg is null))
+            return (null, null, OAuthError.InvalidClientMetadata("*_encrypted_response_enc requires the matching *_encrypted_response_alg"));
+        if (idTokenEncAlg is not null) idTokenEnc ??= "A128CBC-HS256";
+        if (userInfoEncAlg is not null) userInfoEnc ??= "A128CBC-HS256";
+        if ((idTokenEncAlg is not null || userInfoEncAlg is not null) && jwks is null)
+            return (null, null, OAuthError.InvalidClientMetadata("encrypted responses require jwks or jwks_uri"));
 
         var grantTypes = (req.GrantTypes ?? ["authorization_code"]).Distinct().ToList();
         var disallowedGrants = grantTypes.Where(g => !opts.DcrAllowedGrantTypes.Contains(g)).ToList();
@@ -297,7 +323,7 @@ public sealed class DynamicRegistrationEndpointHandler
 
         string? secret = null;
         long secretExpiresAt = 0;
-        if (authMethod != "none")
+        if (authMethod is "client_secret_basic" or "client_secret_post" or "client_secret_jwt")
         {
             secret = GenerateToken(byteLength: 64);   // long enough for HS512 (RFC 7518 §3.2)
             secretExpiresAt = opts.ClientSecretLifetimeSeconds > 0
@@ -305,8 +331,11 @@ public sealed class DynamicRegistrationEndpointHandler
                 : 0;
         }
 
-        var registrationToken = GenerateToken();
-        var id = clientId ?? GenerateClientId();
+        // The registration access token survives an update unless rotation is enabled.
+        var keepToken = existing is not null && !opts.DcrRotateRegistrationTokens;
+        var registrationToken = keepToken ? null : GenerateToken();
+        var tokenHash = keepToken ? existing!.RegistrationAccessTokenHash : HashToken(registrationToken!);
+        var id = existing?.ClientId ?? GenerateClientId();
 
         var client = new Client
         {
@@ -315,14 +344,14 @@ public sealed class DynamicRegistrationEndpointHandler
             RedirectUris = redirectUris,
             AllowedGrantTypes = grantTypes,
             AllowedScopes = allowedScopes,
-            TokenEndpointAuthMethod = authMethod,
+            TokenEndpointAuthMethod = authMethod!,
             RequirePkce = requirePkce,
             ResponseTypes = responseTypes,
             // Dynamically registered clients are third parties: always ask the End-User.
             RequireConsent = true,
             IsDynamic = true,
-            RegistrationAccessTokenHash = HashToken(registrationToken),
-            ClientIdIssuedAt = now,
+            RegistrationAccessTokenHash = tokenHash,
+            ClientIdIssuedAt = existing?.ClientIdIssuedAt ?? now,
             ClientSecretExpiresAt = secretExpiresAt,
             ClientName = req.ClientName,
             ClientUri = req.ClientUri,
@@ -331,9 +360,47 @@ public sealed class DynamicRegistrationEndpointHandler
             BackChannelLogoutUri = req.BackChannelLogoutUri,
             BackChannelLogoutSessionRequired = req.BackChannelLogoutSessionRequired ?? false,
             PostLogoutRedirectUris = req.PostLogoutRedirectUris ?? [],
+            JwksJson = jwks,
+            IdTokenSignedResponseAlg = idTokenAlg,
+            IdTokenEncryptedResponseAlg = idTokenEncAlg,
+            IdTokenEncryptedResponseEnc = idTokenEnc,
+            UserInfoSignedResponseAlg = userInfoAlg,
+            UserInfoEncryptedResponseAlg = userInfoEncAlg,
+            UserInfoEncryptedResponseEnc = userInfoEnc,
+            AuthorizationSignedResponseAlg = authorizationAlg,
+            RequestObjectSigningAlg = requestObjectAlg,
+            RequireSignedRequestObject = req.RequireSignedRequestObject ?? false,
         };
 
         return (client, registrationToken, null);
+    }
+
+    private const int MaxJwksBytes = 65536;
+
+    /// <summary>
+    /// Resolves a metadata value from the singular parameter or, per OpenID Connect RP Metadata
+    /// Choices 1.0, from the RP's list of supported values (first one the provider supports).
+    /// The singular parameter wins when both are sent.
+    /// </summary>
+    private static (string? Value, OAuthError? Error) Choose(
+        string name, string? single, IReadOnlyList<string>? choices, Func<string, bool> supported, string? fallback = null)
+    {
+        if (single is not null)
+            return supported(single)
+                ? (single, null)
+                : (null, OAuthError.InvalidClientMetadata($"{name} '{single}' is not supported"));
+        if (choices is not null)
+            return choices.FirstOrDefault(supported) is { } chosen
+                ? (chosen, null)
+                : (null, OAuthError.InvalidClientMetadata($"none of the offered {name} values is supported"));
+        return (fallback, null);
+    }
+
+    private static bool IsPublicKeySet(string? json)
+    {
+        if (Federation.EntityStatement.TryJwks(json ?? string.Empty) is not { Keys.Count: > 0 } set)
+            return false;
+        return set.Keys.All(k => string.IsNullOrEmpty(k.D) && string.IsNullOrEmpty(k.K) && k.Kty is "RSA" or "EC" or "OKP");
     }
 
     private static ClientRegistrationResponse BuildResponse(
@@ -361,6 +428,16 @@ public sealed class DynamicRegistrationEndpointHandler
             BackChannelLogoutUri = client.BackChannelLogoutUri,
             BackChannelLogoutSessionRequired = client.BackChannelLogoutSessionRequired,
             PostLogoutRedirectUris = client.PostLogoutRedirectUris.Count > 0 ? client.PostLogoutRedirectUris : null,
+            Jwks = client.JwksJson is null ? null : System.Text.Json.JsonDocument.Parse(client.JwksJson).RootElement.Clone(),
+            IdTokenSignedResponseAlg = client.IdTokenSignedResponseAlg,
+            IdTokenEncryptedResponseAlg = client.IdTokenEncryptedResponseAlg,
+            IdTokenEncryptedResponseEnc = client.IdTokenEncryptedResponseEnc,
+            UserInfoSignedResponseAlg = client.UserInfoSignedResponseAlg,
+            UserInfoEncryptedResponseAlg = client.UserInfoEncryptedResponseAlg,
+            UserInfoEncryptedResponseEnc = client.UserInfoEncryptedResponseEnc,
+            RequestObjectSigningAlg = client.RequestObjectSigningAlg,
+            AuthorizationSignedResponseAlg = client.AuthorizationSignedResponseAlg,
+            RequireSignedRequestObject = client.RequireSignedRequestObject,
         };
     }
 

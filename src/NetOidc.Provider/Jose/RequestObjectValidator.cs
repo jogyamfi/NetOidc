@@ -37,31 +37,28 @@ public sealed class RequestObjectValidator
         string signedJwt;
         if (dots == 4)
         {
-            // JWE — decrypt first using OP's encryption key
-            var decryptResult = await _handler.ValidateTokenAsync(requestJwt,
-                new TokenValidationParameters
-                {
-                    ValidateLifetime = false,
-                    ValidateIssuer = false,
-                    ValidateAudience = false,
-                    ValidateSignatureLast = false,
-                    TokenDecryptionKeys = _keys.GetDecryptionKeys(),
-                    // Do not validate signature — inner JWS will be validated below
-                    RequireSignedTokens = false,
-                });
-
-            if (!decryptResult.IsValid)
+            // JWE: decrypt with the provider's encryption keys only. The inner JWS is verified
+            // below against the client's keys (validating the JWE here would also try, and fail,
+            // to verify that signature without them).
+            try
             {
-                _logger.LogInformation(decryptResult.Exception, "Request object decryption failed for client {ClientId}", client.ClientId);
+                var jwe = new JsonWebToken(requestJwt);
+                if (jwe.Alg is null || !KeyRing.SupportedEncryptionAlgorithms.Contains(jwe.Alg) ||
+                    jwe.Enc is null || !KeyRing.SupportedContentDecryptionAlgorithms.Contains(jwe.Enc))
+                    return (null, "request object encryption algorithm is not supported");
+                signedJwt = _handler.DecryptToken(jwe, new TokenValidationParameters
+                {
+                    TokenDecryptionKeys = _keys.GetDecryptionKeys(),
+                });
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)   // attacker-controlled input
+            {
+                _logger.LogInformation(ex, "Request object decryption failed for client {ClientId}", client.ClientId);
                 return (null, "failed to decrypt request object");
             }
 
-            // Extract the inner JWS from the decrypted payload
-            var innerToken = decryptResult.SecurityToken as JsonWebToken;
-            if (innerToken is null)
-                return (null, "decrypted request object is not a valid JWT");
-
-            signedJwt = innerToken.InnerToken?.EncodedToken ?? requestJwt;
+            if (CountDots(signedJwt) != 2)
+                return (null, "an encrypted request object must contain a signed JWT");
         }
         else if (dots == 2)
         {

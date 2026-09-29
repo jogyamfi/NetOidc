@@ -183,4 +183,37 @@ public sealed class DiscoveryDocument
     [JsonPropertyName("client_registration_types_supported")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? ClientRegistrationTypesSupported { get; init; }
+
+    // ── Phase 5 (REMEDIATION_PLAN P5.1) ────────────────────────────────────────
+
+    [JsonPropertyName("token_endpoint_auth_signing_alg_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? TokenEndpointAuthSigningAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("userinfo_signing_alg_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? UserInfoSigningAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("userinfo_encryption_alg_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? UserInfoEncryptionAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("userinfo_encryption_enc_values_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? UserInfoEncryptionEncValuesSupported { get; init; }
+
+    /// <summary>RFC 9101 §10.5: every authorization request must use a signed request object.</summary>
+    [JsonPropertyName("require_signed_request_object")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool RequireSignedRequestObject { get; init; }
+
+    /// <summary>OID4VCI 1.0 §12.3: the pre-authorized code grant works without client authentication.</summary>
+    [JsonPropertyName("pre-authorized_grant_anonymous_access_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PreAuthorizedGrantAnonymousAccessSupported { get; init; }
+
+    /// <summary>draft-ietf-oauth-client-id-metadata-document: URL client_ids are resolved.</summary>
+    [JsonPropertyName("client_id_metadata_document_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ClientIdMetadataDocumentSupported { get; init; }
 }

@@ -48,7 +48,7 @@ internal sealed class TestWebApp : IAsyncDisposable
             opts.MtlsTrustedProxies = ["127.0.0.1"];
             // Required hooks for features tests may enable; individual tests override them.
             opts.ProcessBackchannelAuthenticationRequest = (_, _) => Task.CompletedTask;
-            opts.IssueCredential = (_, _) => Task.FromResult("test-credential");
+            opts.IssueCredential = (_, _) => Task.FromResult<Vci.CredentialIssuanceResult>("test-credential");
 
             opts.StaticClients =
             [

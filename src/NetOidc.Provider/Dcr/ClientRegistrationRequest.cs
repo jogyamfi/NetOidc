@@ -46,4 +46,69 @@ public sealed class ClientRegistrationRequest
 
     [JsonPropertyName("require_pkce")]
     public bool? RequirePkce { get; init; }
+
+    // ── Keys and algorithms (RFC 7591 §2, OIDC Registration §2, RFC 9101 §10.5) ──
+
+    [JsonPropertyName("jwks")]
+    public System.Text.Json.JsonElement? Jwks { get; init; }
+
+    [JsonPropertyName("jwks_uri")]
+    public string? JwksUri { get; init; }
+
+    [JsonPropertyName("id_token_signed_response_alg")]
+    public string? IdTokenSignedResponseAlg { get; init; }
+
+    [JsonPropertyName("id_token_encrypted_response_alg")]
+    public string? IdTokenEncryptedResponseAlg { get; init; }
+
+    [JsonPropertyName("id_token_encrypted_response_enc")]
+    public string? IdTokenEncryptedResponseEnc { get; init; }
+
+    [JsonPropertyName("userinfo_signed_response_alg")]
+    public string? UserInfoSignedResponseAlg { get; init; }
+
+    [JsonPropertyName("userinfo_encrypted_response_alg")]
+    public string? UserInfoEncryptedResponseAlg { get; init; }
+
+    [JsonPropertyName("userinfo_encrypted_response_enc")]
+    public string? UserInfoEncryptedResponseEnc { get; init; }
+
+    [JsonPropertyName("request_object_signing_alg")]
+    public string? RequestObjectSigningAlg { get; init; }
+
+    [JsonPropertyName("authorization_signed_response_alg")]
+    public string? AuthorizationSignedResponseAlg { get; init; }
+
+    [JsonPropertyName("require_signed_request_object")]
+    public bool? RequireSignedRequestObject { get; init; }
+
+    // ── OpenID Connect RP Metadata Choices 1.0: the RP lists what it supports and the
+    //    provider chooses, returning the singular parameter in the response. ──
+
+    [JsonPropertyName("token_endpoint_auth_methods_supported")]
+    public IReadOnlyList<string>? TokenEndpointAuthMethodsSupported { get; init; }
+
+    [JsonPropertyName("id_token_signing_alg_values_supported")]
+    public IReadOnlyList<string>? IdTokenSigningAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("id_token_encryption_alg_values_supported")]
+    public IReadOnlyList<string>? IdTokenEncryptionAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("id_token_encryption_enc_values_supported")]
+    public IReadOnlyList<string>? IdTokenEncryptionEncValuesSupported { get; init; }
+
+    [JsonPropertyName("userinfo_signing_alg_values_supported")]
+    public IReadOnlyList<string>? UserInfoSigningAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("userinfo_encryption_alg_values_supported")]
+    public IReadOnlyList<string>? UserInfoEncryptionAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("userinfo_encryption_enc_values_supported")]
+    public IReadOnlyList<string>? UserInfoEncryptionEncValuesSupported { get; init; }
+
+    [JsonPropertyName("request_object_signing_alg_values_supported")]
+    public IReadOnlyList<string>? RequestObjectSigningAlgValuesSupported { get; init; }
+
+    [JsonPropertyName("authorization_signing_alg_values_supported")]
+    public IReadOnlyList<string>? AuthorizationSigningAlgValuesSupported { get; init; }
 }

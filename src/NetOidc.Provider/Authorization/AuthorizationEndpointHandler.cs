@@ -86,6 +86,11 @@ public sealed class AuthorizationEndpointHandler
     {
         var result = await HandleCoreAsync(context, ct);
         await RecordOutcomeAsync(context, result, ct);
+
+        // Errors that cannot be redirected to the client are shown to the End-User.
+        if (_options.Value.RenderErrorPage is { } render &&
+            result is Microsoft.AspNetCore.Http.HttpResults.BadRequest<OAuthError> { Value: { } error })
+            return await render(context, error);
         return result;
     }
 
@@ -652,21 +657,33 @@ public sealed class AuthorizationEndpointHandler
     private static (string? Json, string? Error) ParseAuthorizationDetails(
         string authDetailsParam, ProviderOptions opts)
     {
-        if (!opts.RichAuthorizationRequestsEnabled || string.IsNullOrEmpty(authDetailsParam))
+        // OID4VCI wallets use authorization_details even when general RAR support is off.
+        if ((!opts.RichAuthorizationRequestsEnabled && !opts.VciEnabled) || string.IsNullOrEmpty(authDetailsParam))
             return (null, null);
 
+        System.Text.Json.Nodes.JsonArray details;
         try
         {
-            using var doc = JsonDocument.Parse(authDetailsParam);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            if (System.Text.Json.Nodes.JsonNode.Parse(authDetailsParam) is not System.Text.Json.Nodes.JsonArray array)
                 return (null, "authorization_details must be a JSON array");
+            details = array;
         }
         catch (JsonException)
         {
             return (null, "authorization_details is not valid JSON");
         }
 
-        return (authDetailsParam, null);
+        foreach (var entry in details)
+        {
+            if (entry is not System.Text.Json.Nodes.JsonObject obj || NetOidc.Provider.Http.JsonNodeExtensions.AsString(obj["type"]) is not { Length: > 0 } type)
+                return (null, "each authorization_details entry must be an object with a type");
+            if (!opts.RichAuthorizationRequestsEnabled && type != Vci.CredentialAuthorizationDetails.Type)
+                return (null, $"authorization_details type '{type}' is not supported");
+        }
+
+        if (Vci.CredentialAuthorizationDetails.ValidateAndEnrich(details, opts) is { } error)
+            return (null, error);
+        return (details.ToJsonString(), null);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

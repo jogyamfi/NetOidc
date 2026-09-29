@@ -157,6 +157,8 @@ public static class EndpointRouteBuilderExtensions
         // Always mounted; handler returns 400 when FederationEnabled is false.
         group.MapGet("/.well-known/openid-federation",
             (FederationEndpointHandler h) => h.Handle());
+        group.MapPost(opts.FederationRegistrationEndpoint,
+            (FederationRegistrationEndpointHandler h, HttpContext ctx, CancellationToken ct) => h.HandleAsync(ctx, ct));
 
         // ── Phase 8 — VCI (OID4VCI 1.0) ──────────────────────────────────────
         // Always mounted; handlers return 400 when VciEnabled is false.
@@ -167,39 +169,20 @@ public static class EndpointRouteBuilderExtensions
             (VciEndpointHandler h, HttpContext ctx, CancellationToken ct) =>
                 h.HandleCredentialAsync(ctx, ct));
 
-        // Credential issuer metadata (OID4VCI §11.2)
+        group.MapPost(opts.VciDeferredCredentialEndpoint,
+            (VciEndpointHandler h, HttpContext ctx, CancellationToken ct) => h.HandleDeferredCredentialAsync(ctx, ct));
+
+        group.MapPost(opts.VciNotificationEndpoint,
+            (VciEndpointHandler h, HttpContext ctx, CancellationToken ct) => h.HandleNotificationAsync(ctx, ct));
+
+        group.MapGet(opts.VciCredentialOfferEndpoint + "/{offerId}",
+            (VciEndpointHandler h, string offerId, CancellationToken ct) => h.HandleCredentialOfferAsync(offerId, ct));
+
+        // Credential issuer metadata (OID4VCI 1.0 §12.2)
         group.MapGet("/.well-known/openid-credential-issuer",
-            (VciEndpointHandler h, HttpContext ctx) =>
-            {
-                var o = ctx.RequestServices.GetRequiredService<IOptions<ProviderOptions>>().Value;
-                if (!o.VciEnabled)
-                    return Results.Json(Errors.OAuthError.InvalidRequest("VCI is not enabled"), statusCode: 400);
-
-                var issuer = (string.IsNullOrEmpty(o.VciCredentialIssuer) ? o.Issuer : o.VciCredentialIssuer).TrimEnd('/');
-                string Abs(string p) => issuer + p;
-
-                var configs = o.VciCredentialConfigurations.ToDictionary(
-                    c => c.Id,
-                    c => (object)new
-                    {
-                        format = c.Format,
-                        scope = c.Scope,
-                        credential_signing_alg_values_supported = c.CredentialSigningAlgValuesSupported,
-                        cryptographic_binding_methods_supported = c.CryptographicBindingMethodsSupported,
-                        proof_types_supported = c.ProofTypesSupported.ToDictionary(
-                            kv => kv.Key,
-                            kv => (object)new { proof_signing_alg_values_supported = kv.Value }),
-                        vct = c.Vct,
-                    });
-
-                return Results.Json(new
-                {
-                    credential_issuer = issuer,
-                    credential_endpoint = Abs(o.VciCredentialEndpoint),
-                    nonce_endpoint = Abs(o.VciNonceEndpoint),
-                    credential_configurations_supported = configs,
-                });
-            });
+            (VciService vci) => vci.BuildIssuerMetadata() is { } metadata
+                ? Results.Json(metadata)
+                : Results.Json(Errors.OAuthError.InvalidRequest("VCI is not enabled"), statusCode: 400));
 
         return endpoints;
     }
