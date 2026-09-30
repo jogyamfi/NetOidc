@@ -33,7 +33,7 @@ public interface ICibaService
 }
 
 /// <summary>Default <see cref="ICibaService"/> (OpenID CIBA Core 1.0 §10).</summary>
-public sealed class CibaService : ICibaService
+internal sealed class CibaService : ICibaService
 {
     private const string AuthReqIdClaim = "urn:openid:params:jwt:claim:auth_req_id";
 
@@ -109,11 +109,11 @@ public sealed class CibaService : ICibaService
                 await PushAsync(client, request, ct);
                 break;
             case "ping":
-                await _requests.StoreAsync(authReqId, request, remaining, ct);
+                await _requests.StoreAsync(authReqId, request, Token.ExpiredRecords.TimeToLive(request.ExpiresAt), ct);
                 await NotifyAsync(client, request.ClientNotificationToken!, new { auth_req_id = authReqId }, ct);
                 break;
             default:
-                await _requests.StoreAsync(authReqId, request, remaining, ct);
+                await _requests.StoreAsync(authReqId, request, Token.ExpiredRecords.TimeToLive(request.ExpiresAt), ct);
                 break;
         }
         return true;

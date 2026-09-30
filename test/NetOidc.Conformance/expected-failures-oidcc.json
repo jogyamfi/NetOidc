@@ -1,0 +1,20 @@
+[
+    {
+        "test-name": "oidcc-server-rotate-keys",
+        "variant": "*",
+        "configuration-filename": "*",
+        "current-block": "",
+        "condition": "VerifyNewJwksHasNewSigningKey",
+        "expected-result": "failure",
+        "comment": "The test needs someone to rotate the OP's keys between its two JWKS fetches, which an unattended run cannot do. NetOidc rotates keys with notBefore/notAfter or an IKeyStore (docs/KEY_MANAGEMENT.md); this is self-attested for certification."
+    },
+    {
+        "test-name": "oidcc-userinfo-post-body",
+        "variant": "*",
+        "configuration-filename": "*",
+        "current-block": "",
+        "condition": "UserInfoEndpointWithAccessTokenInBodyNotSupported",
+        "expected-result": "warning",
+        "comment": "Deliberate (REMEDIATION_PLAN P2.4): the UserInfo endpoint accepts the access token only in the Authorization header; RFC 6750 section 2.2 form-body tokens are optional."
+    }
+]

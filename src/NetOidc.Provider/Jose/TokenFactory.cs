@@ -8,7 +8,7 @@ using NetOidc.Provider.Configuration;
 namespace NetOidc.Provider.Jose;
 
 /// <summary>Creates and validates JWT access tokens and ID tokens.</summary>
-public sealed class TokenFactory
+internal sealed class TokenFactory
 {
     private readonly KeyRing _keys;
     private readonly IOptions<ProviderOptions> _options;
@@ -67,6 +67,7 @@ public sealed class TokenFactory
     /// <summary>Issues an ID token per OIDC Core spec, with optional encryption for the client.</summary>
     /// <param name="accessToken">When set, its <c>at_hash</c> is included (OIDC Core §3.3.2.11).</param>
     /// <param name="code">When set, its <c>c_hash</c> is included (OIDC Core §3.3.2.11).</param>
+    /// <param name="state">When set, its <c>s_hash</c> is included (FAPI 1.0 Advanced §5.2.2.1).</param>
     public string CreateIdToken(
         string subject,
         string clientId,
@@ -78,7 +79,8 @@ public sealed class TokenFactory
         string? sid = null,
         Client? client = null,
         string? accessToken = null,
-        string? code = null)
+        string? code = null,
+        string? state = null)
     {
         // The client's registered id_token_signed_response_alg, else the provider default.
         var credentials = _keys.GetSigningCredentials(client?.IdTokenSignedResponseAlg);
@@ -97,6 +99,7 @@ public sealed class TokenFactory
         if (sid is not null) claims["sid"] = sid;
         if (accessToken is not null) claims["at_hash"] = HalfHash(accessToken, credentials.Algorithm);
         if (code is not null) claims["c_hash"] = HalfHash(code, credentials.Algorithm);
+        if (state is not null) claims["s_hash"] = HalfHash(state, credentials.Algorithm);
 
         var descriptor = new SecurityTokenDescriptor
         {
@@ -254,6 +257,12 @@ public sealed class TokenFactory
     }
 
     /// <summary>
+    /// ID tokens are issued with <c>typ: JWT</c>. Other tokens signed with the same keys
+    /// (<c>at+JWT</c> access tokens, <c>logout+jwt</c> logout tokens) must not pass as ID tokens.
+    /// </summary>
+    private static readonly string[] IdTokenTypes = ["JWT"];
+
+    /// <summary>
     /// Validates an ID token (as id_token_hint). Returns the <see cref="ClaimsPrincipal"/>
     /// on success, or <c>null</c> if validation fails (lifetime errors are tolerated).
     /// </summary>
@@ -267,6 +276,7 @@ public sealed class TokenFactory
             IssuerSigningKeys = _keys.GetValidationKeys(),
             ValidateAudience = false,   // audience is the client_id — we don't restrict here
             ValidateLifetime = false,   // hints may be expired
+            ValidTypes = IdTokenTypes,
         });
         return result.IsValid ? new ClaimsPrincipal(result.ClaimsIdentity) : null;
     }
@@ -286,6 +296,7 @@ public sealed class TokenFactory
             IssuerSigningKeys = _keys.GetValidationKeys(),
             ValidateAudience = false,   // the caller compares aud/azp with its policy
             ValidateLifetime = true,
+            ValidTypes = IdTokenTypes,
             ClockSkew = TimeSpan.FromSeconds(5),
         });
         return result.IsValid ? new ClaimsPrincipal(result.ClaimsIdentity) : null;

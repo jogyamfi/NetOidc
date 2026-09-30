@@ -5,7 +5,8 @@ namespace NetOidc.Provider.Errors;
 /// <summary>OAuth 2.0 error response body (RFC 6749 §5.2).</summary>
 public sealed record OAuthError(
     [property: JsonPropertyName("error")] string Error,
-    [property: JsonPropertyName("error_description")] string? Description = null)
+    // RFC 6749 §5.2: error_description is a string when present, never null.
+    [property: JsonPropertyName("error_description"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Description = null)
 {
     public static OAuthError InvalidRequest(string? description = null) => new("invalid_request", description);
     public static OAuthError InvalidClient(string? description = null) => new("invalid_client", description);

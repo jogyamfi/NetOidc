@@ -14,7 +14,7 @@ namespace NetOidc.Provider.Token;
 /// stored record must exist (so revoked tokens fail) and, for tokens issued under a grant, the
 /// grant must not have been revoked (RFC 7009 §2.1 revocation cascade).
 /// </summary>
-public sealed class AccessTokenService
+internal sealed class AccessTokenService
 {
     private readonly TokenFactory _tokenFactory;
     private readonly IAdapter<AccessToken> _accessTokens;

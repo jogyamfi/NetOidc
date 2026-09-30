@@ -12,7 +12,7 @@ namespace NetOidc.Provider.Federation;
 /// Turns the effective <c>openid_relying_party</c> metadata of a verified trust chain into a
 /// <see cref="Client"/>. Shared by automatic and explicit registration.
 /// </summary>
-public sealed class FederationClientFactory
+internal sealed class FederationClientFactory
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly SafeHttpFetcher _fetcher;

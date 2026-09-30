@@ -373,17 +373,31 @@ the text above, and follow-ups:
 
 ## Phase 6 — Verification & release readiness
 
-- [ ] **P6.1 Regression suite** — every item above has a test; add concurrency tests (P1.4) and
+- [x] **P6.1 Regression suite** — every item above has a test; add concurrency tests (P1.4) and
   negative security tests per endpoint.
-- [ ] **P6.2 Conformance** — add the `NetOidc.Conformance` project from the implementation plan;
+- [x] **P6.2 Conformance** — add the `NetOidc.Conformance` project from the implementation plan;
   pass the OpenID Foundation suites: Basic, Implicit, Hybrid, Config, Dynamic, RP-Initiated /
   Back-Channel Logout, FAPI 1 Advanced, FAPI 2 Security + Message Signing, FAPI-CIBA.
 - [ ] **P6.3 Independent security review** of the finished Phase 1–4 work.
-- [ ] **P6.4 Documentation** — adapter guide (including the atomicity contract), key management
+- [x] **P6.4 Documentation** — adapter guide (including the atomicity contract), key management
   guide, production deployment checklist, CHANGELOG with breaking changes, accurate README
   status table.
-- [ ] **P6.5 Packaging** — replace placeholder `RepositoryUrl`/`PackageProjectUrl` in
+- [x] **P6.5 Packaging** — replace placeholder `RepositoryUrl`/`PackageProjectUrl` in
   [Directory.Build.props](../Directory.Build.props); Source Link; public API analyzers.
+
+### Phase 6 — implementation notes (branch `release/1.0`)
+
+P6.1, P6.2, P6.4 and P6.5 are done (671 tests pass). **P6.3 remains open:** the internal review is
+written up in [SECURITY_REVIEW.md](SECURITY_REVIEW.md), but the plan requires an independent
+reviewer.
+
+| Item | Note |
+|------|------|
+| P6.1 | `ConcurrencyTests` (50 racers for every single-use artifact: codes, rotating refresh tokens, PAR, device and CIBA redemptions, pre-authorized codes, assertion and DPoP `jti`) and `EndpointNegativeTests` (client authentication, forged/unsigned/tampered tokens, malformed bodies, duplicate parameters, wrong methods, response hygiene) across every endpoint. Every P1–P5 item is referenced by a test. |
+| P6.2 | `test/NetOidc.Conformance` runs the OpenID Foundation suite (`release-v5.3.1`) locally in Docker. All required plans pass: OIDC Basic, Implicit, Hybrid, Form Post, Config, Dynamic, RP-Initiated, Front- and Back-Channel Logout, FAPI 2.0 SP (DPoP, mTLS) and Message Signing, FAPI 1.0 Advanced, FAPI-CIBA (poll, ping). Remaining items are explained in [CONFORMANCE.md](CONFORMANCE.md): manual key rotation, a user refusing on the CIBA device, and the deliberate UserInfo form-body refusal. The suite found more than 20 defects, all fixed with tests (`ConformanceSuiteFindingsTests`, `RequestUriAndKeyRotationTests`). Formal certification (hosted suite, public deployment, reviewed screenshots) is still to do. |
+| P6.3 | Internal review found 12 defects, all fixed (`SecurityReviewTests`, `EndpointNegativeTests`). Residual risks and focus areas for the independent reviewer are listed in SECURITY_REVIEW.md. |
+| P6.4 | ADAPTERS, KEY_MANAGEMENT, PRODUCTION_CHECKLIST, CONFORMANCE, SECURITY_REVIEW; CHANGELOG with breaking changes; README status and documentation tables. |
+| P6.5 | Real repository URLs, Source Link, `.snupkg`, XML docs and README in the packages; `PublicApiAnalyzers` with `PublicAPI.Unshipped.txt` (the public surface was reduced to ~40 types); CI workflow (build, test, pack). |
 
 ---
 

@@ -18,7 +18,7 @@ namespace NetOidc.Provider.Par;
 /// request parameters, stores them under a <c>request_uri</c>, and returns
 /// <c>{ request_uri, expires_in }</c>.
 /// </summary>
-public sealed class ParEndpointHandler
+internal sealed class ParEndpointHandler
 {
     /// <summary>Client authentication parameters, which must never be persisted.</summary>
     private static readonly HashSet<string> ClientAuthParameters =
@@ -28,6 +28,7 @@ public sealed class ParEndpointHandler
     private readonly ClientAuthenticator _clientAuthenticator;
     private readonly IAdapter<PushedAuthorizationRequest> _parStore;
     private readonly RequestObjectValidator _requestObjectValidator;
+    private readonly DPoP.DPopProofValidator _dpopValidator;
     private readonly Microsoft.Extensions.Logging.ILogger<ParEndpointHandler> _logger;
 
     public ParEndpointHandler(
@@ -35,8 +36,10 @@ public sealed class ParEndpointHandler
         ClientAuthenticator clientAuthenticator,
         IAdapter<PushedAuthorizationRequest> parStore,
         RequestObjectValidator requestObjectValidator,
+        DPoP.DPopProofValidator dpopValidator,
         Microsoft.Extensions.Logging.ILogger<ParEndpointHandler> logger)
     {
+        _dpopValidator = dpopValidator;
         _logger = logger;
         _options = options;
         _clientAuthenticator = clientAuthenticator;
@@ -102,10 +105,33 @@ public sealed class ParEndpointHandler
         }
         paramsDict["client_id"] = client.ClientId;   // normalise
 
+        // ── DPoP authorization-code binding (RFC 9449 §10.1) ─────────────────
+        // A DPoP proof sent with the pushed request binds the code to its key, like dpop_jkt.
+        var dpopHeader = context.Request.Headers["DPoP"].ToString();
+        if (!string.IsNullOrEmpty(dpopHeader))
+        {
+            if (!opts.DPoPEnabled)
+                return ParError(OAuthError.InvalidRequest("DPoP is not supported by this server"), 400);
+            var proof = await _dpopValidator.ValidateAsync(dpopHeader, "POST",
+                opts.Issuer.TrimEnd('/') + opts.PushedAuthorizationEndpoint, accessToken: null,
+                clockSkewSeconds: opts.DPoPProofLifetimeSeconds,
+                allowedAlgorithms: opts.FapiProfile == Configuration.FapiProfile.None ? null : RequestObjectValidator.FapiSigningAlgorithms);
+            if (proof is null)
+                return ParError(OAuthError.InvalidDPoPProof("DPoP proof is missing or invalid"), 400);
+            if (paramsDict.TryGetValue("dpop_jkt", out var requestedJkt) && requestedJkt != proof.Thumbprint)
+                return ParError(OAuthError.InvalidDPoPProof("the DPoP proof key does not match dpop_jkt"), 400);
+            paramsDict["dpop_jkt"] = proof.Thumbprint;
+        }
+
         // ── Validate the request now, not only when it is redeemed (RFC 9126 §2.1) ──
         var responseType = paramsDict.GetValueOrDefault("response_type");
         if (string.IsNullOrEmpty(responseType))
             return ParError(OAuthError.InvalidRequest("response_type is required"), 400);
+        var normalizedResponseType = Authorization.AuthorizationEndpointHandler.NormalizeResponseType(responseType);
+        if (!Discovery.DiscoveryService.ResponseTypesFor(opts).Contains(normalizedResponseType))
+            return ParError(OAuthError.UnsupportedResponseType($"Unsupported response_type: {responseType}"), 400);
+        if (!client.ResponseTypes.Any(rt => Authorization.AuthorizationEndpointHandler.NormalizeResponseType(rt) == normalizedResponseType))
+            return ParError(OAuthError.UnauthorizedClient($"client may not use response_type '{responseType}'"), 400);
 
         var redirectUri = paramsDict.GetValueOrDefault("redirect_uri");
         if (string.IsNullOrEmpty(redirectUri) && client.RedirectUris.Count != 1)

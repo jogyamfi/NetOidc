@@ -4,14 +4,14 @@ using NetOidc.Provider.Abstractions.Models;
 namespace NetOidc.Provider.Adapters;
 
 /// <summary>A client resolved from an external source, and how long it may be cached.</summary>
-public sealed record ResolvedClient(Client Client, TimeSpan CacheFor);
+internal sealed record ResolvedClient(Client Client, TimeSpan CacheFor);
 
 /// <summary>
 /// Turns a URL <c>client_id</c> that is not registered into a client, e.g. from a Client ID
 /// Metadata Document or an OpenID Federation trust chain. Return <c>null</c> when this source
 /// does not apply or resolution fails.
 /// </summary>
-public interface IClientResolver
+internal interface IClientResolver
 {
     Task<ResolvedClient?> ResolveAsync(string clientId, CancellationToken ct);
 }
@@ -21,7 +21,7 @@ public interface IClientResolver
 /// <c>client_id</c>, the <see cref="IClientResolver"/>s in registration order. Resolved clients
 /// are cached through <c>IAdapter&lt;Client&gt;</c>.
 /// </summary>
-public sealed class ResolvingClientStore : IClientStore
+internal sealed class ResolvingClientStore : IClientStore
 {
     /// <summary>Key prefix of resolved (and federation-registered) clients in <c>IAdapter&lt;Client&gt;</c>.</summary>
     public const string CachePrefix = "resolved-client:";

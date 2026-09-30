@@ -481,11 +481,11 @@ public sealed class ConformanceTests
     private static string Assertion(RSA rsa) => new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
     {
         Issuer = "pkjwt",
-        Audience = "https://auth.test.example.com/connect/token",
+        Audience = "https://auth.test.example.com",
         Subject = new ClaimsIdentity([new Claim("sub", "pkjwt")]),
         Expires = DateTime.UtcNow.AddMinutes(2),
         Claims = new Dictionary<string, object> { ["jti"] = Guid.NewGuid().ToString() },
-        SigningCredentials = new SigningCredentials(new RsaSecurityKey(rsa), SecurityAlgorithms.RsaSha256),
+        SigningCredentials = new SigningCredentials(new RsaSecurityKey(rsa), SecurityAlgorithms.RsaSsaPssSha256),
     });
 
     private static string DPoP(ECDsa key)

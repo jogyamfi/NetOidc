@@ -5,8 +5,117 @@ changes are allowed between minor versions and are listed explicitly.
 
 ## [Unreleased]
 
-Security remediation, specification conformance, operability and completed features, Phases 1–5
-(see [docs/REMEDIATION_PLAN.md](docs/REMEDIATION_PLAN.md)).
+Security remediation, specification conformance, operability, completed features and release
+readiness, Phases 1–6 (see [docs/REMEDIATION_PLAN.md](docs/REMEDIATION_PLAN.md)).
+
+### Security fixes — Phase 6
+
+- A malformed `request` object (e.g. `a.b.c`) caused a server error at the authorization, PAR
+  and CIBA endpoints; it is now `invalid_request_object`.
+- A form body that cannot be decoded (e.g. `%00`) caused a server error at every form endpoint;
+  it is now `invalid_request`.
+- Access tokens and logout tokens were accepted where an ID token is expected (`id_token_hint`,
+  token exchange with `subject_token_type=id_token`). ID tokens must now have `typ: JWT`.
+- `client_secret_expires_at` was issued to dynamically registered clients but never enforced;
+  expired secrets are now rejected.
+- FAPI 2.0: client assertions must carry the issuer identifier as their only audience (OpenID
+  Foundation audience-injection advisory, 2025).
+- FAPI profiles: request objects and client assertions must use PS256 or ES256; request objects
+  must carry `nbf` and `exp`, at most 60 minutes apart and with `nbf` at most 60 minutes old.
+- SSRF: the client for untrusted URLs no longer uses a configured HTTP proxy (which would resolve
+  internal hosts on the provider's behalf), and IPv6 ranges that embed IPv4 addresses (NAT64,
+  6to4, IPv4-compatible, Teredo) are classified by the embedded address.
+- FAPI profiles: DPoP proofs must use PS256 or ES256, and discovery advertises only those for
+  client-signed objects. DPoP proofs with RSA keys under 2048 bits are refused, and `htu` paths are
+  compared exactly.
+
+### Conformance — Phase 6
+
+Found by running the OpenID Foundation conformance suite against NetOidc:
+
+- CIBA used the grant type `urn:ietf:params:oauth:grant-type:ciba`; the registered value is
+  `urn:openid:params:grant-type:ciba` (CIBA Core §10.1), so no conforming client could redeem a
+  CIBA request.
+- Authorization errors raised before the response mode was settled (unsupported `response_type`,
+  unusable request objects) were always returned in the query string. They now honour the requested
+  `response_mode` (also when it is only inside an unusable request object) and default to the
+  fragment for implicit and hybrid requests.
+- ID tokens returned from the authorization endpoint carry `s_hash` (FAPI 1.0 Advanced §5.2.2.1).
+- `request_uri` by reference (RFC 9101 §5.2, OIDC Core §6.2), required for the Dynamic OP profile:
+  `RequestUriParameterSupported` (with JAR) fetches pre-registered `request_uris` through the
+  SSRF-safe client; discovery advertises `require_request_uri_registration`.
+- Clients registered with a `jwks_uri` keep it (`Client.JwksUri`); when a client assertion or
+  request object does not verify, the key set is re-fetched (at most every 30 s per client), so
+  relying parties can rotate keys (OIDC Core §10.1.1).
+- Dynamic registration accepts and returns `policy_uri`, `tos_uri`, `request_uris` and echoes
+  `jwks_uri`.
+- New `DcrRequirePkceByDefault` (default `true`): set `false` for relying parties that predate PKCE,
+  such as the Dynamic certification profile. Public clients always need PKCE.
+- An RP-initiated logout without a `post_logout_redirect_uri` shows a signed-out page instead of an
+  empty 204 response.
+- `DcrAllowPrivateNetworkUris` now also covers `jwks_uri` and `request_uri` fetches.
+- Authorization error responses carry `iss` (RFC 9207 §2) and are JARM-wrapped when the request
+  asked for a `jwt` response mode.
+- Expired device codes and CIBA requests return `expired_token` (RFC 8628 §3.5, CIBA Core §11)
+  instead of `invalid_grant`.
+- DPoP authorization-code binding (RFC 9449 §10): `dpop_jkt`, or a DPoP proof sent to PAR, binds
+  the code to that key.
+- FAPI 1.0 Advanced only issues sender-constrained tokens; PAR rejects response types the profile
+  or client does not allow; request objects must not contain `request`/`request_uri`; a missing
+  `scope` under FAPI is `invalid_request`.
+- Under FAPI, `x-fapi-interaction-id` is echoed (or issued) on every protocol response.
+- The FAPI-CIBA profile validator no longer demands PAR (a valid FAPI-CIBA provider failed to start).
+- New `InteractionDenialService`: the host's login or consent page reports that the End-User
+  cancelled, and the client receives `access_denied` (OIDC Core §3.1.2.6).
+- Error bodies omit a null `error_description`; a missing `code_verifier` is `invalid_grant`.
+- Request objects without `exp` are accepted outside FAPI (OIDC Core §6.1).
+- The front-channel logout page continues to the relying party without JavaScript.
+- `NetOidcHttpClients` exposes the names of the outbound HTTP clients for host configuration.
+- All protocol responses carry `Cache-Control: no-store` and `Pragma: no-cache` (RFC 6749 §5.1),
+  except the public metadata documents.
+- Repeated request parameters are rejected with `invalid_request` (RFC 6749 §3.1), except
+  `resource` and `audience`.
+- New `test/NetOidc.Conformance` host and `run-conformance.sh`, which run the OpenID Foundation
+  conformance suite locally against NetOidc.
+
+### Packaging and documentation — Phase 6
+
+- Package metadata points at the real repository; Source Link, deterministic builds, symbol
+  packages (`.snupkg`), XML documentation and the README are included in the packages.
+- The public API is tracked with `Microsoft.CodeAnalysis.PublicApiAnalyzers`
+  (`PublicAPI.Shipped.txt` / `PublicAPI.Unshipped.txt`); changing it without updating those files
+  fails the build.
+- New guides: [adapters](docs/ADAPTERS.md), [key management](docs/KEY_MANAGEMENT.md) and the
+  [production checklist](docs/PRODUCTION_CHECKLIST.md).
+- A Production host no longer needs an encryption key: without one, encrypted request objects are
+  not offered (previously a generated key made the host refuse to start).
+
+### Breaking changes — Phase 6
+
+- The CIBA grant type is `urn:openid:params:grant-type:ciba`. Update `Client.AllowedGrantTypes`
+  of CIBA clients; the previous value is no longer recognised.
+- Dynamic registration responses for clients registered with a `jwks_uri` return `jwks_uri`, not
+  the fetched `jwks`.
+- RP-initiated logout without a redirect URI returns 200 with a signed-out page (was 204).
+- Response types a FAPI profile does not allow return `unsupported_response_type` (was
+  `unauthorized_client` or `invalid_request`).
+- Under FAPI 1.0 Advanced a token request without a client certificate (or DPoP proof) fails.
+
+- **The public API is reduced to the supported surface.** Endpoint handlers and internal services
+  are now `internal`: `*EndpointHandler`, `AccessTokenService`, `BackChannelLogoutService`,
+  `CibaService` (use `ICibaService`), `ClaimsEngine`, `ClientAuthenticator`,
+  `ClientAttestationValidator`, `ClientIdMetadataDocumentResolver`, `ClientRegistrationResponse`,
+  `ConfiguredKeyStore`, `DiscoveryService`, `DiscoveryDocument`, `DPoPNonceService`,
+  `DPopProofValidator`, `EntityStatement`, `FapiProfileValidator`, `Federation*` services,
+  `GrantService`, `IClientResolver`, `KeyRing`, `KeyHealthCheck` (use `AddNetOidcKeys()`),
+  `MetadataPolicy`, `ProviderOptionsValidator`, `RefreshTokenService`, `RequestObjectValidator`,
+  `RequestThrottle`, `ResourceIndicators`, `SafeHttpFetcher`, `SubjectIdentifierService`,
+  `TokenFactory`, `TokenIssuanceService`, `TrustChain(Resolver)`, `UserClaimsService`,
+  `VciService`. The remaining public types are listed in `src/*/PublicAPI.Unshipped.txt`.
+- Repeated parameters are rejected (see above).
+- FAPI profiles: RS256 client assertions and request objects, and request objects without
+  `nbf`/`exp`, are rejected; under FAPI 2.0 a client assertion `aud` other than the issuer string
+  is rejected.
 
 ### Features — Phase 5
 

@@ -19,7 +19,7 @@ namespace NetOidc.Provider.Ciba;
 /// <c>{ auth_req_id, expires_in, interval }</c>. The host resolves the request with
 /// <see cref="ICibaService.CompleteAsync"/>; poll, ping and push delivery are supported.
 /// </summary>
-public sealed class CibaEndpointHandler
+internal sealed class CibaEndpointHandler
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly ClientAuthenticator _clientAuthenticator;
@@ -66,7 +66,7 @@ public sealed class CibaEndpointHandler
             return Error(OAuthError.InvalidClient(), 401);
         }
 
-        if (!client.AllowedGrantTypes.Contains("urn:ietf:params:oauth:grant-type:ciba"))
+        if (!client.AllowedGrantTypes.Contains("urn:openid:params:grant-type:ciba"))
             return Error(OAuthError.UnauthorizedClient("CIBA grant not allowed for this client"), 400);
 
         // ── Delivery mode (CIBA §5) ───────────────────────────────────────────
@@ -185,7 +185,7 @@ public sealed class CibaEndpointHandler
             ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(lifetime),
         };
 
-        await _cibaStore.StoreAsync(authReqId, authRequest, TimeSpan.FromSeconds(lifetime), ct);
+        await _cibaStore.StoreAsync(authReqId, authRequest, Token.ExpiredRecords.TimeToLive(authRequest.ExpiresAt), ct);
 
         // Out-of-band authentication outlives this HTTP request, so it must not use its
         // cancellation token; failures are logged rather than lost.

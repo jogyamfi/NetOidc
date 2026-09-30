@@ -72,6 +72,12 @@ public sealed class Client
 
     public string? LogoUri { get; init; }
 
+    /// <summary><c>policy_uri</c>: how the client uses End-User data (OIDC Registration §2).</summary>
+    public string? PolicyUri { get; init; }
+
+    /// <summary><c>tos_uri</c>: the client's terms of service (OIDC Registration §2).</summary>
+    public string? TosUri { get; init; }
+
     public IReadOnlyList<string> Contacts { get; init; } = [];
 
     // ── Session / Logout metadata (OIDC Back-Channel Logout §2) ─────────────
@@ -95,6 +101,19 @@ public sealed class Client
 
     /// <summary>Inline JWKS JSON used to verify the client's signed request objects.</summary>
     public string? JwksJson { get; init; }
+
+    /// <summary>
+    /// The client's <c>jwks_uri</c>. When set, <see cref="JwksJson"/> holds the last fetched copy
+    /// and the provider re-fetches the set when a signature does not verify (key rotation,
+    /// OIDC Core §10.1.1).
+    /// </summary>
+    public string? JwksUri { get; init; }
+
+    /// <summary>
+    /// Pre-registered <c>request_uri</c> values (OIDC Registration §2). Only these are fetched;
+    /// the fragment is ignored when comparing.
+    /// </summary>
+    public IReadOnlyList<string> RequestUris { get; init; } = [];
 
     /// <summary>Expected signing alg for request objects (e.g. "RS256"). Null = any supported alg.</summary>
     public string? RequestObjectSigningAlg { get; init; }
@@ -134,12 +153,7 @@ public sealed class Client
     public string? IdTokenEncryptedResponseEnc { get; init; }
 
     // ── Phase 5 — Private-key JWT client auth (RFC 7523) ─────────────────────
-
-    /// <summary>
-    /// Inline JWKS JSON used to verify <c>private_key_jwt</c> client assertions.
-    /// Overlaps with <see cref="JwksJson"/> (JAR); the same field is re-used.
-    /// </summary>
-    // JwksJson already declared above; no new field needed for private_key_jwt.
+    // private_key_jwt assertions are verified with JwksJson (shared with JAR).
 
     // ── Phase 5 — mTLS client auth (RFC 8705) ────────────────────────────────
 

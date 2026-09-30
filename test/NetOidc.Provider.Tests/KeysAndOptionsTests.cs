@@ -149,6 +149,18 @@ public sealed class KeysAndOptionsTests
     }
 
     [Fact]
+    public async Task Production_DoesNotRequireAnEncryptionKey()
+    {
+        // Encrypted request objects are optional; a signing key alone is a valid configuration.
+        await using var app = await StartHostAsync("Production", o => o.JarEnabled = true, b => b
+            .AddSigningKey(new RsaSecurityKey(RSA.Create(2048))));
+        var keys = app.Services.GetRequiredService<Jose.IKeyStore>().GetKeys();
+        Assert.DoesNotContain(keys, k => k.Use == Jose.ProviderKeyUse.Encryption);
+        var discovery = app.Services.GetRequiredService<Discovery.DiscoveryService>().BuildDocument();
+        Assert.Null(discovery.RequestObjectEncryptionAlgValuesSupported);
+    }
+
+    [Fact]
     public async Task KeyTypeNotMatchingAlgorithm_FailsStartup()
     {
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => StartHostAsync("Development", _ => { },

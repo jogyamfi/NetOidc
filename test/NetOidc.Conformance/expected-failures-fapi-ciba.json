@@ -1,0 +1,11 @@
+[
+    {
+        "test-name": "fapi-ciba-id1-user-rejects-authentication",
+        "variant": "*",
+        "configuration-filename": "*",
+        "current-block": "*",
+        "condition": "CheckTokenEndpointHttpStatus400",
+        "expected-result": "failure",
+        "comment": "Needs a person to refuse the request on the authentication device; the harness's simulated device always approves. Hosts deny with ICibaService.CompleteAsync(authReqId, approve: false)."
+    }
+]

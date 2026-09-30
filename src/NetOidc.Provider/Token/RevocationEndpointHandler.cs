@@ -15,7 +15,7 @@ namespace NetOidc.Provider.Token;
 /// Always responds with 200 OK regardless of whether the token was found,
 /// per the "no information about the token" requirement of the spec.
 /// </summary>
-public sealed class RevocationEndpointHandler
+internal sealed class RevocationEndpointHandler
 {
     private readonly ClientAuthenticator _clientAuthenticator;
     private readonly IAdapter<AccessToken> _accessTokenStore;

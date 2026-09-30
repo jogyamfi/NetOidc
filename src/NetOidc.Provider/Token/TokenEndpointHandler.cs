@@ -18,7 +18,7 @@ namespace NetOidc.Provider.Token;
 /// device_code (RFC 8628), and CIBA grant types. Tokens are minted by
 /// <see cref="TokenIssuanceService"/>.
 /// </summary>
-public sealed class TokenEndpointHandler
+internal sealed class TokenEndpointHandler
 {
     // Token type URIs (RFC 8693 §3)
     private const string TokenTypeAccessToken = "urn:ietf:params:oauth:token-type:access_token";
@@ -28,7 +28,7 @@ public sealed class TokenEndpointHandler
     private const string GrantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange";
     private const string GrantTypeJwtBearer = "urn:ietf:params:oauth:grant-type:jwt-bearer";
     private const string GrantTypeDeviceCode = "urn:ietf:params:oauth:grant-type:device_code";
-    private const string GrantTypeCiba = "urn:ietf:params:oauth:grant-type:ciba";
+    private const string GrantTypeCiba = "urn:openid:params:grant-type:ciba";
     private const string GrantTypePreAuthorizedCode = Vci.CredentialOfferService.PreAuthorizedCodeGrantType;
 
     private readonly IOptions<ProviderOptions> _options;
@@ -141,7 +141,8 @@ public sealed class TokenEndpointHandler
                 context.Request.Method,
                 opts.Issuer.TrimEnd('/') + opts.TokenEndpoint,
                 accessToken: null,
-                clockSkewSeconds: opts.DPoPProofLifetimeSeconds);
+                clockSkewSeconds: opts.DPoPProofLifetimeSeconds,
+                allowedAlgorithms: opts.FapiProfile == FapiProfile.None ? null : Jose.RequestObjectValidator.FapiSigningAlgorithms);
 
             if (proof is null)
                 return TokenError(OAuthError.InvalidDPoPProof("DPoP proof is missing or invalid"), 400);
@@ -157,20 +158,21 @@ public sealed class TokenEndpointHandler
         }
 
         var isFapi2 = opts.FapiProfile is FapiProfile.Fapi2Security or FapiProfile.Fapi2MessageSigning or FapiProfile.FapiCiba;
+        // FAPI 1.0 Advanced §5.2.2-5 and FAPI 2.0 §5.3.2.1: only sender-constrained tokens.
+        var requireBinding = isFapi2 || opts.FapiProfile == FapiProfile.Fapi1Advanced;
 
         // ── mTLS certificate binding (RFC 8705 §3) ──────────────────────────────
         string? cnfX5tS256 = null;
-        if (opts.MtlsEnabled && (client.UseMtlsBoundTokens || isFapi2) && cnfJwkThumbprint is null)
+        if (opts.MtlsEnabled && (client.UseMtlsBoundTokens || requireBinding) && cnfJwkThumbprint is null)
         {
             var cert = _clientAuthenticator.GetClientCertificate(context);
             if (cert is not null)
                 cnfX5tS256 = ClientAuthenticator.ComputeCertThumbprint(cert);
         }
 
-        // FAPI 2.0 §5.3.2.1: every access token must be sender-constrained.
-        if (isFapi2 && cnfJwkThumbprint is null && cnfX5tS256 is null)
+        if (requireBinding && cnfJwkThumbprint is null && cnfX5tS256 is null)
             return TokenError(OAuthError.InvalidRequest(
-                "FAPI 2.0: sender-constrained tokens are required (present a DPoP proof or client certificate)"), 400);
+                "FAPI: sender-constrained tokens are required (present a DPoP proof or client certificate)"), 400);
 
         var binding = new Binding(cnfJwkThumbprint, cnfX5tS256);
         var grantType = form["grant_type"].ToString();
@@ -239,7 +241,8 @@ public sealed class TokenEndpointHandler
         if (authCode.CodeChallenge is not null)
         {
             if (string.IsNullOrEmpty(codeVerifier))
-                return TokenError(OAuthError.InvalidRequest("code_verifier is required"), 400);
+                // RFC 7636 §4.6: the code cannot be redeemed without its verifier.
+                return TokenError(OAuthError.InvalidGrant("code_verifier is required"), 400);
             if (!PkceValidator.Validate(codeVerifier, authCode.CodeChallenge, authCode.CodeChallengeMethod ?? "plain"))
                 return TokenError(OAuthError.InvalidGrant("code_verifier does not match code_challenge"), 400);
         }
@@ -247,6 +250,10 @@ public sealed class TokenEndpointHandler
         {
             return TokenError(OAuthError.InvalidGrant("code_verifier supplied but no code_challenge was sent"), 400);
         }
+
+        // RFC 9449 §10: a code bound with dpop_jkt is redeemed only with a proof from that key.
+        if (authCode.DPoPJkt is not null && authCode.DPoPJkt != binding.Jkt)
+            return TokenError(OAuthError.InvalidGrant("the DPoP proof key does not match the dpop_jkt of the authorization request"), 400);
 
         var (resources, resourceError) = NarrowResources(form, authCode.Resources);
         if (resourceError is not null)
@@ -601,7 +608,7 @@ public sealed class TokenEndpointHandler
         {
             deviceCode.LastPolledAt = now;
             deviceCode.IntervalSeconds += 5;
-            await _deviceCodeStore.StoreAsync(deviceCodeValue, deviceCode, remaining, ct);
+            await _deviceCodeStore.StoreAsync(deviceCodeValue, deviceCode, ExpiredRecords.TimeToLive(deviceCode.ExpiresAt), ct);
             return TokenError(OAuthError.SlowDown($"polling too frequently; wait {deviceCode.IntervalSeconds} seconds"), 400);
         }
         deviceCode.LastPolledAt = now;
@@ -609,7 +616,7 @@ public sealed class TokenEndpointHandler
         switch (deviceCode.Status)
         {
             case DeviceCodeStatus.Pending:
-                await _deviceCodeStore.StoreAsync(deviceCodeValue, deviceCode, remaining, ct);
+                await _deviceCodeStore.StoreAsync(deviceCodeValue, deviceCode, ExpiredRecords.TimeToLive(deviceCode.ExpiresAt), ct);
                 return TokenError(OAuthError.AuthorizationPending("user has not yet authorized"), 400);
             case DeviceCodeStatus.Denied:
                 await _deviceCodeStore.RemoveAsync(deviceCodeValue, ct);
@@ -728,7 +735,7 @@ public sealed class TokenEndpointHandler
             (now - authRequest.LastPolledAt.Value).TotalSeconds < opts.CibaPollingIntervalSeconds)
         {
             authRequest.LastPolledAt = now;
-            await _cibaStore.StoreAsync(authReqId, authRequest, remaining, ct);
+            await _cibaStore.StoreAsync(authReqId, authRequest, ExpiredRecords.TimeToLive(authRequest.ExpiresAt), ct);
             return TokenError(OAuthError.SlowDown("polling too frequently"), 400);
         }
         authRequest.LastPolledAt = now;
@@ -736,7 +743,7 @@ public sealed class TokenEndpointHandler
         switch (authRequest.Status)
         {
             case BackchannelAuthenticationStatus.Pending:
-                await _cibaStore.StoreAsync(authReqId, authRequest, remaining, ct);
+                await _cibaStore.StoreAsync(authReqId, authRequest, ExpiredRecords.TimeToLive(authRequest.ExpiresAt), ct);
                 return TokenError(OAuthError.AuthorizationPending("user has not yet authenticated"), 400);
             case BackchannelAuthenticationStatus.Denied:
                 await _cibaStore.RemoveAsync(authReqId, ct);

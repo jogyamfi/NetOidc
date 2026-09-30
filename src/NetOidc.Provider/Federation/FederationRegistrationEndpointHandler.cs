@@ -15,7 +15,7 @@ namespace NetOidc.Provider.Federation;
 /// resolves the RP's trust chain, registers the client until the chain expires, and answers with
 /// a signed registration response.
 /// </summary>
-public sealed class FederationRegistrationEndpointHandler
+internal sealed class FederationRegistrationEndpointHandler
 {
     private const int MaxBodyBytes = 65536;
 

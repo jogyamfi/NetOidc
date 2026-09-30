@@ -144,7 +144,7 @@ internal sealed class TestWebApp : IAsyncDisposable
                 {
                     ClientId = "ciba-client",
                     ClientSecret = "ciba-secret",
-                    AllowedGrantTypes = ["urn:ietf:params:oauth:grant-type:ciba", "refresh_token"],
+                    AllowedGrantTypes = ["urn:openid:params:grant-type:ciba", "refresh_token"],
                     AllowedScopes = ["openid", "profile"],
                     RedirectUris = [],
                     TokenEndpointAuthMethod = "client_secret_basic",

@@ -9,7 +9,7 @@ namespace NetOidc.Provider.Diagnostics;
 /// degraded when keys are generated or every active signing key expires within the warning
 /// window and no successor is published.
 /// </summary>
-public sealed class KeyHealthCheck : IHealthCheck
+internal sealed class KeyHealthCheck : IHealthCheck
 {
     private readonly IKeyStore _store;
     private readonly TimeSpan _warnBefore;

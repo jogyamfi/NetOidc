@@ -287,7 +287,7 @@ public sealed class Phase6Tests
             Headers = { Authorization = AuthenticationHeaderValue.Parse(BasicAuth("ciba-client", "ciba-secret")) },
             Content = new FormUrlEncodedContent(
             [
-                new("grant_type", "urn:ietf:params:oauth:grant-type:ciba"),
+                new("grant_type", "urn:openid:params:grant-type:ciba"),
                 new("auth_req_id", authReqId),
             ]),
         });
@@ -332,7 +332,7 @@ public sealed class Phase6Tests
             Headers = { Authorization = AuthenticationHeaderValue.Parse(BasicAuth("ciba-client", "ciba-secret")) },
             Content = new FormUrlEncodedContent(
             [
-                new("grant_type", "urn:ietf:params:oauth:grant-type:ciba"),
+                new("grant_type", "urn:openid:params:grant-type:ciba"),
                 new("auth_req_id", authReqId),
             ]),
         });
@@ -357,7 +357,7 @@ public sealed class Phase6Tests
 
         var grants = doc.RootElement.GetProperty("grant_types_supported")
             .EnumerateArray().Select(e => e.GetString()).ToList();
-        Assert.Contains("urn:ietf:params:oauth:grant-type:ciba", grants);
+        Assert.Contains("urn:openid:params:grant-type:ciba", grants);
 
         var modes = doc.RootElement.GetProperty("backchannel_token_delivery_modes_supported")
             .EnumerateArray().Select(e => e.GetString()).ToList();

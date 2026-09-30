@@ -7,7 +7,7 @@ using NetOidc.Provider.Http;
 namespace NetOidc.Provider.Federation;
 
 /// <summary>A parsed (not yet verified) OpenID Federation entity statement (§3).</summary>
-public sealed class EntityStatement
+internal sealed class EntityStatement
 {
     public const string MediaType = "application/entity-statement+jwt";
 

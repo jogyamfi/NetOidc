@@ -19,7 +19,7 @@ namespace NetOidc.Provider.Token;
 /// Supports: client_secret_basic, client_secret_post, private_key_jwt,
 /// client_secret_jwt, tls_client_auth, self_signed_tls_client_auth, attest_jwt_client_auth.
 /// </summary>
-public sealed class ClientAuthenticator
+internal sealed class ClientAuthenticator
 {
     private const string JwtBearerAssertionType =
         "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
@@ -44,12 +44,15 @@ public sealed class ClientAuthenticator
     private readonly ILogger<ClientAuthenticator> _logger;
     private readonly IProviderEventSink _events;
     private readonly ClientAttestationValidator _attestations;
+    private readonly Jose.ClientJwksProvider _clientJwks;
     private readonly JsonWebTokenHandler _jwtHandler = new();
 
     public ClientAuthenticator(
         IClientStore clientStore, IOptions<ProviderOptions> options, IReplayCache replayCache,
-        ILogger<ClientAuthenticator> logger, IProviderEventSink events, ClientAttestationValidator attestations)
+        ILogger<ClientAuthenticator> logger, IProviderEventSink events, ClientAttestationValidator attestations,
+        Jose.ClientJwksProvider clientJwks)
     {
+        _clientJwks = clientJwks;
         _attestations = attestations;
         _logger = logger;
         _events = events;
@@ -148,8 +151,8 @@ public sealed class ClientAuthenticator
                 return null;
             var client = await _clientStore.FindClientAsync(basicId!, ct);
             return client?.TokenEndpointAuthMethod == "client_secret_basic" &&
-                   client.ClientSecret is not null &&
-                   ConstantTimeEquals(basicSecret ?? string.Empty, client.ClientSecret)
+                   SecretIsCurrent(client) &&
+                   ConstantTimeEquals(basicSecret ?? string.Empty, client.ClientSecret!)
                 ? client : null;
         }
 
@@ -171,8 +174,8 @@ public sealed class ClientAuthenticator
         {
             var client = await _clientStore.FindClientAsync(formClientId, ct);
             return client?.TokenEndpointAuthMethod == "client_secret_post" &&
-                   client.ClientSecret is not null &&
-                   ConstantTimeEquals(form["client_secret"].ToString(), client.ClientSecret)
+                   SecretIsCurrent(client) &&
+                   ConstantTimeEquals(form["client_secret"].ToString(), client.ClientSecret!)
                 ? client : null;
         }
 
@@ -222,10 +225,18 @@ public sealed class ClientAuthenticator
         if (client is null) return null;
 
         var issuer = opts.Issuer.TrimEnd('/');
+
+        // FAPI 2.0 §5.3.2.1 (audience injection, OpenID Foundation advisory 2025): the issuer
+        // identifier is the only acceptable audience, as a single string. FAPI-CIBA builds on
+        // FAPI 1.0 Advanced, which has no such rule.
+        var isFapi2 = opts.FapiProfile is FapiProfile.Fapi2Security or FapiProfile.Fapi2MessageSigning;
+        if (isFapi2 && !HasSingleAudience(unvalidated, opts.Issuer))
+            return null;
+
         var parameters = new TokenValidationParameters
         {
             ValidIssuer = clientId,
-            ValidAudiences = [issuer + opts.TokenEndpoint, issuer, currentEndpointUrl],
+            ValidAudiences = isFapi2 ? [opts.Issuer] : [issuer + opts.TokenEndpoint, issuer, opts.Issuer, currentEndpointUrl],
             ValidateLifetime = true,
             RequireExpirationTime = true,
             ClockSkew = ClockSkew,
@@ -235,19 +246,20 @@ public sealed class ClientAuthenticator
         {
             case "private_key_jwt":
             {
-                if (client.JwksJson is null) return null;
-                try { parameters.IssuerSigningKeys = new JsonWebKeySet(client.JwksJson).GetSigningKeys(); }
-                catch { return null; }
-                parameters.ValidAlgorithms = AsymmetricAlgorithms;
+                if (SigningKeys(_clientJwks.Current(client)) is not { } keys) return null;
+                parameters.IssuerSigningKeys = keys;
+                parameters.ValidAlgorithms = opts.FapiProfile == FapiProfile.None
+                    ? AsymmetricAlgorithms
+                    : Jose.RequestObjectValidator.FapiSigningAlgorithms;
                 break;
             }
             case "client_secret_jwt":
             {
-                if (client.ClientSecret is null ||
+                if (!SecretIsCurrent(client) ||
                     !HmacMinKeyBytes.TryGetValue(unvalidated.Alg ?? string.Empty, out var minBytes))
                     return null;
                 // RFC 7518 §3.2: the raw secret is the key and must be at least as long as the hash.
-                var keyBytes = System.Text.Encoding.UTF8.GetBytes(client.ClientSecret);
+                var keyBytes = System.Text.Encoding.UTF8.GetBytes(client.ClientSecret!);
                 if (keyBytes.Length < minBytes) return null;
                 parameters.IssuerSigningKey = new SymmetricSecurityKey(keyBytes);
                 parameters.ValidAlgorithms = [unvalidated.Alg!];
@@ -258,6 +270,13 @@ public sealed class ClientAuthenticator
         }
 
         var result = await _jwtHandler.ValidateTokenAsync(assertion, parameters);
+        // The client may have rotated the keys at its jwks_uri (OIDC Core §10.1.1): re-fetch once.
+        if (!result.IsValid && client.TokenEndpointAuthMethod == "private_key_jwt" &&
+            SigningKeys(await _clientJwks.RefreshAsync(client, ct)) is { } refreshed)
+        {
+            parameters.IssuerSigningKeys = refreshed;
+            result = await _jwtHandler.ValidateTokenAsync(assertion, parameters);
+        }
         if (!result.IsValid) return null;
 
         // Bound the assertion lifetime so a leaked assertion is only briefly useful.
@@ -272,6 +291,13 @@ public sealed class ClientAuthenticator
             return null;
 
         return client;
+    }
+
+    private static IList<SecurityKey>? SigningKeys(string? jwksJson)
+    {
+        if (jwksJson is null) return null;
+        try { return new JsonWebKeySet(jwksJson).GetSigningKeys(); }
+        catch (Exception ex) when (ex is ArgumentException or System.Text.Json.JsonException) { return null; }
     }
 
     // ── mTLS helpers (RFC 8705) ───────────────────────────────────────────────
@@ -370,16 +396,16 @@ public sealed class ClientAuthenticator
                 .ToList();
     }
 
-    private static bool ValidateSelfSignedTlsClientAuth(X509Certificate2 cert, Client client)
+    private bool ValidateSelfSignedTlsClientAuth(X509Certificate2 cert, Client client)
     {
         // No PKI: the certificate is trusted because its key is registered (RFC 8705 §2.2),
         // but an expired or not-yet-valid certificate is still refused.
         var now = DateTime.Now;
         if (now < cert.NotBefore || now > cert.NotAfter) return false;
-        if (client.JwksJson is null) return false;
+        if (_clientJwks.Current(client) is not { } jwks) return false;
         try
         {
-            return new JsonWebKeySet(client.JwksJson).Keys.Any(key => PublicKeyMatchesCert(key, cert));
+            return new JsonWebKeySet(jwks).Keys.Any(key => PublicKeyMatchesCert(key, cert));
         }
         catch
         {
@@ -482,6 +508,25 @@ public sealed class ClientAuthenticator
 
         static string FormDecode(string s) => Uri.UnescapeDataString(s.Replace('+', ' '));
     }
+
+    private static bool HasSingleAudience(JsonWebToken token, string audience)
+    {
+        try
+        {
+            using var payload = System.Text.Json.JsonDocument.Parse(Base64UrlEncoder.Decode(token.EncodedPayload));
+            return payload.RootElement.TryGetProperty("aud", out var aud) &&
+                   aud.ValueKind == System.Text.Json.JsonValueKind.String && aud.GetString() == audience;
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or FormatException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>A shared secret exists and has not passed its <c>client_secret_expires_at</c> (0 = never).</summary>
+    private static bool SecretIsCurrent(Client client) =>
+        client.ClientSecret is not null &&
+        (client.ClientSecretExpiresAt == 0 || DateTimeOffset.UtcNow.ToUnixTimeSeconds() < client.ClientSecretExpiresAt);
 
     private static bool ConstantTimeEquals(string a, string b) =>
         CryptographicOperations.FixedTimeEquals(

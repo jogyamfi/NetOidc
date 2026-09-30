@@ -6,7 +6,7 @@ namespace NetOidc.Provider.Discovery;
 /// OIDC Discovery / RFC 8414 server metadata document returned by
 /// <c>/.well-known/openid-configuration</c>.
 /// </summary>
-public sealed class DiscoveryDocument
+internal sealed class DiscoveryDocument
 {
     [JsonPropertyName("issuer")]
     public required string Issuer { get; init; }
@@ -95,6 +95,10 @@ public sealed class DiscoveryDocument
 
     [JsonPropertyName("request_uri_parameter_supported")]
     public bool RequestUriParameterSupported { get; init; }
+
+    [JsonPropertyName("require_request_uri_registration")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RequireRequestUriRegistration { get; init; }
 
     // ── Phase 4 ────────────────────────────────────────────────────────────────
 

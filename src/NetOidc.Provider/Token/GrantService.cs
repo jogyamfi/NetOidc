@@ -10,7 +10,7 @@ namespace NetOidc.Provider.Token;
 /// refresh-token family and the access tokens issued from them. Removing a grant revokes
 /// everything issued under it (RFC 6749 §4.1.2, RFC 7009 §2.1).
 /// </summary>
-public sealed class GrantService
+internal sealed class GrantService
 {
     private readonly IAdapter<Grant> _grants;
 

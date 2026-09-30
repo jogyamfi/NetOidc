@@ -18,7 +18,7 @@ namespace NetOidc.Provider.Vci;
 /// Handles the OID4VCI endpoints: credential, nonce, deferred credential, notification and
 /// credential offer.
 /// </summary>
-public sealed class VciEndpointHandler
+internal sealed class VciEndpointHandler
 {
     private const string ProofTyp = "openid4vci-proof+jwt";
 

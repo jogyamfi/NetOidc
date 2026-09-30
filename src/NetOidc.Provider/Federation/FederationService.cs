@@ -16,7 +16,7 @@ namespace NetOidc.Provider.Federation;
 /// (§3, §9) and explicit registration responses (§12.2). Both are signed with the federation
 /// entity key, which is published only in the entity configuration's <c>jwks</c>.
 /// </summary>
-public sealed class FederationService
+internal sealed class FederationService
 {
     private static readonly JsonSerializerOptions MetadataJson = new()
     {

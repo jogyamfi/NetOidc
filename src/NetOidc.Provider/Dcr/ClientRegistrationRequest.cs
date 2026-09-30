@@ -32,6 +32,12 @@ public sealed class ClientRegistrationRequest
     [JsonPropertyName("logo_uri")]
     public string? LogoUri { get; init; }
 
+    [JsonPropertyName("policy_uri")]
+    public string? PolicyUri { get; init; }
+
+    [JsonPropertyName("tos_uri")]
+    public string? TosUri { get; init; }
+
     [JsonPropertyName("contacts")]
     public IReadOnlyList<string>? Contacts { get; init; }
 
@@ -54,6 +60,9 @@ public sealed class ClientRegistrationRequest
 
     [JsonPropertyName("jwks_uri")]
     public string? JwksUri { get; init; }
+
+    [JsonPropertyName("request_uris")]
+    public IReadOnlyList<string>? RequestUris { get; init; }
 
     [JsonPropertyName("id_token_signed_response_alg")]
     public string? IdTokenSignedResponseAlg { get; init; }

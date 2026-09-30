@@ -15,7 +15,7 @@ namespace NetOidc.Provider.Token;
 /// Put scope-derived End-User claims in the ID token. OIDC Core §5.4 requires this only when no
 /// access token is issued (<c>response_type=id_token</c>).
 /// </param>
-public sealed record IdTokenParameters(
+internal sealed record IdTokenParameters(
     DateTimeOffset AuthTime,
     string? Nonce = null,
     string? Acr = null,
@@ -24,10 +24,11 @@ public sealed record IdTokenParameters(
     string? ClaimsRequest = null,
     string? Code = null,
     bool IncludeScopeClaims = false,
+    string? State = null,
     IReadOnlyDictionary<string, object>? ExtraClaims = null);
 
 /// <summary>Everything needed to issue tokens for one grant.</summary>
-public sealed record TokenIssuanceRequest
+internal sealed record TokenIssuanceRequest
 {
     public required Client Client { get; init; }
 
@@ -65,7 +66,7 @@ public sealed record TokenIssuanceRequest
 }
 
 /// <summary>The tokens minted for one request.</summary>
-public sealed record IssuedTokens(
+internal sealed record IssuedTokens(
     string AccessToken,
     AccessToken AccessTokenRecord,
     string? RefreshToken,
@@ -77,7 +78,7 @@ public sealed record IssuedTokens(
 /// Single place that mints access, refresh and ID tokens: pairwise subjects, resource
 /// audiences, grant lineage, sender constraint, <c>at_hash</c>/<c>c_hash</c> and claims release.
 /// </summary>
-public sealed class TokenIssuanceService
+internal sealed class TokenIssuanceService
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly TokenFactory _tokenFactory;
@@ -220,7 +221,7 @@ public sealed class TokenIssuanceService
         return _tokenFactory.CreateIdToken(
             _subjects.Compute(localSubject, client), client.ClientId, parameters.Nonce, parameters.AuthTime,
             acr: parameters.Acr, amr: parameters.Amr, additionalClaims: claims, sid: parameters.SessionId,
-            client: client, accessToken: accessToken, code: parameters.Code);
+            client: client, accessToken: accessToken, code: parameters.Code, state: parameters.State);
     }
 
     /// <summary>

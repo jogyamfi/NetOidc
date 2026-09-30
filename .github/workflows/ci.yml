@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Source Link needs the commit
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Warnings are errors; the public API analyzer fails the build on unrecorded API changes.
+      - run: dotnet build -c Release
+
+      - run: dotnet test -c Release --no-build --logger trx --results-directory TestResults
+
+      - run: dotnet pack src/NetOidc.Provider.Abstractions -c Release --no-build -o artifacts
+      - run: dotnet pack src/NetOidc.Provider -c Release --no-build -o artifacts
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: packages-and-test-results
+          path: |
+            artifacts/
+            TestResults/

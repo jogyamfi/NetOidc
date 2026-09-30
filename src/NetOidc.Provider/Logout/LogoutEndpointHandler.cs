@@ -24,10 +24,10 @@ namespace NetOidc.Provider.Logout;
 ///   <c>confirm=true</c> and an antiforgery token.</item>
 ///   <item>End the session: sign out, remove the OIDC session, notify clients over the back
 ///   channel and, when enabled, the front channel.</item>
-///   <item>Redirect to <c>post_logout_redirect_uri</c> (with <c>state</c>) or return 204.</item>
+///   <item>Redirect to <c>post_logout_redirect_uri</c> (with <c>state</c>) or show a signed-out page.</item>
 /// </list>
 /// </summary>
-public sealed class LogoutEndpointHandler
+internal sealed class LogoutEndpointHandler
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly IClientStore _clientStore;
@@ -171,7 +171,10 @@ public sealed class LogoutEndpointHandler
         if (frontChannelUris.Count > 0)
             return Results.Content(FrontChannelPage(frontChannelUris, target), "text/html");
 
-        return target is not null ? Results.Redirect(target) : Results.NoContent();
+        // Without a (valid) post_logout_redirect_uri the End-User stays here: tell them it worked.
+        return target is not null
+            ? Results.Redirect(target)
+            : Results.Content(FrontChannelPage([], null), "text/html");
     }
 
     /// <summary>
@@ -205,18 +208,19 @@ public sealed class LogoutEndpointHandler
         var next = target is null
             ? "<p>You have been signed out.</p>"
             : $"""<p>Signing you out… <a id="continue" href="{enc.Encode(target)}">Continue</a></p>""";
-        var script = target is null
+        // Continue after the iframes have had time to load (no JavaScript needed, and only one
+        // navigation: a second one would reach the relying party twice).
+        var refresh = target is null
             ? string.Empty
-            : $$"""<script>window.addEventListener("load", function () { setTimeout(function () { window.location.href = {{System.Text.Json.JsonSerializer.Serialize(target)}}; }, 1000); });</script>""";
+            : $"""<meta http-equiv="refresh" content="2;url={enc.Encode(target)}" />""";
 
         return $"""
             <!DOCTYPE html>
             <html>
-              <head><title>Signed out</title></head>
+              <head><title>Signed out</title>{refresh}</head>
               <body>
                 {next}
                 {frames}
-                {script}
               </body>
             </html>
             """;

@@ -6,14 +6,14 @@ namespace NetOidc.Provider.Http;
 
 /// <summary>A document fetched from a URL supplied by an untrusted party.</summary>
 /// <param name="MaxAge">The response's <c>Cache-Control: max-age</c>, if any.</param>
-public sealed record FetchedDocument(string Content, string? MediaType, TimeSpan? MaxAge);
+internal sealed record FetchedDocument(string Content, string? MediaType, TimeSpan? MaxAge);
 
 /// <summary>
 /// Fetches documents named by untrusted parties (client metadata documents, federation entity
 /// statements, JWKS): https only, no redirects, a connector that refuses non-public addresses,
 /// a timeout and a response size limit.
 /// </summary>
-public sealed class SafeHttpFetcher
+internal sealed class SafeHttpFetcher
 {
     private readonly IHttpClientFactory _httpClientFactory;
 
@@ -22,8 +22,11 @@ public sealed class SafeHttpFetcher
     /// <summary>
     /// GETs <paramref name="url"/>. Returns <c>null</c> for non-https URLs, network failures,
     /// non-success responses and bodies larger than <paramref name="maxBytes"/>.
+    /// <paramref name="allowPrivateNetwork"/> lifts the public-address restriction (never
+    /// redirects, size limits or https), for deployments that trust their clients' URLs.
     /// </summary>
-    public async Task<FetchedDocument?> GetAsync(string url, int maxBytes, string? accept, CancellationToken ct)
+    public async Task<FetchedDocument?> GetAsync(
+        string url, int maxBytes, string? accept, CancellationToken ct, bool allowPrivateNetwork = false)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
             !string.IsNullOrEmpty(uri.Fragment))
@@ -31,7 +34,9 @@ public sealed class SafeHttpFetcher
 
         try
         {
-            var http = _httpClientFactory.CreateClient(BackChannelLogoutService.UntrustedHttpClientName);
+            var http = _httpClientFactory.CreateClient(allowPrivateNetwork
+                ? BackChannelLogoutService.TrustedHttpClientName
+                : BackChannelLogoutService.UntrustedHttpClientName);
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             if (accept is not null) request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
 

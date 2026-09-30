@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -7,22 +8,24 @@ namespace NetOidc.Provider.Jose;
 
 /// <summary>
 /// Default <see cref="IKeyStore"/>: the keys registered in <see cref="ProviderOptions.Keys"/>
-/// (see <c>NetOidcBuilder.AddSigningKey</c> and friends). When no signing or encryption key is
-/// configured, an RSA key is generated for the lifetime of the process — acceptable for
-/// development only; production hosts refuse to start with generated keys.
+/// (see <c>NetOidcBuilder.AddSigningKey</c> and friends). When no signing key (or, outside
+/// Production, no encryption key) is configured, an RSA key is generated for the lifetime of the
+/// process — acceptable for development only; production hosts refuse to start with generated keys.
 /// </summary>
-public sealed class ConfiguredKeyStore : IKeyStore, IDisposable
+internal sealed class ConfiguredKeyStore : IKeyStore, IDisposable
 {
     private readonly IReadOnlyList<ProviderKey> _keys;
     private readonly List<IDisposable> _generated = [];
 
-    public ConfiguredKeyStore(IOptions<ProviderOptions> options)
+    public ConfiguredKeyStore(IOptions<ProviderOptions> options, IHostEnvironment? environment = null)
     {
         var keys = options.Value.Keys.ToList();
 
         if (!keys.Any(k => k.Use == ProviderKeyUse.Signing))
             keys.Add(Generate(ProviderKeyUse.Signing, SecurityAlgorithms.RsaSha256));
-        if (!keys.Any(k => k.Use == ProviderKeyUse.Encryption))
+        // Encryption keys are optional: without one, encrypted request objects are simply not
+        // offered. Generating one in Production would only make the startup check refuse to start.
+        if (!keys.Any(k => k.Use == ProviderKeyUse.Encryption) && environment?.IsProduction() != true)
             keys.Add(Generate(ProviderKeyUse.Encryption, "RSA-OAEP"));
         if (options.Value.FederationEnabled && !keys.Any(k => k.Use == ProviderKeyUse.Federation))
             keys.Add(Generate(ProviderKeyUse.Federation, SecurityAlgorithms.RsaSha256));

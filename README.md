@@ -1,7 +1,10 @@
 # NetOidc
 
-> **⚠️ Pre-release — not production ready.**
-> APIs may change before v1.0. Security has not been independently audited.
+> **Release candidate (0.9).** The security remediation and conformance work (Phases 1–6 of the
+> [remediation plan](docs/REMEDIATION_PLAN.md)) is complete and the OpenID Foundation conformance
+> suites run locally ([results](docs/CONFORMANCE.md)). Before 1.0: an **independent security
+> review** ([scope](docs/SECURITY_REVIEW.md)) and formal certification. The public API may still
+> change until then.
 
 A configurable OAuth 2.0 / OpenID Connect provider for **.NET 10**, modeled after
 [go-oidc](https://github.com/luikyv/go-oidc) and
@@ -22,7 +25,8 @@ A configurable OAuth 2.0 / OpenID Connect provider for **.NET 10**, modeled afte
 | `src/NetOidc.Provider.Abstractions` | Public interfaces & models |
 | `samples/NetOidc.Sample.Host` | Minimal ASP.NET Core host — runs the provider on port 5001 |
 | `samples/NetOidc.Sample.Client` | Razor Pages relying party — connects via `AddOpenIdConnect` on port 3000 |
-| `test/NetOidc.Provider.Tests` | 191 xUnit integration tests |
+| `test/NetOidc.Provider.Tests` | xUnit unit and integration tests |
+| `test/NetOidc.Conformance` | OP host and scripts for the OpenID Foundation conformance suite |
 
 ## Running the samples end-to-end
 
@@ -40,20 +44,32 @@ Open `http://localhost:3000`, click **Sign in via NetOidc**, and log in as `alic
 The client's Profile page displays the identity claims and the raw UserInfo endpoint response.
 See [`samples/NetOidc.Sample.Client/README.md`](samples/NetOidc.Sample.Client/README.md) for full details.
 
-## Implementation status
+## Status
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 0 | Foundations & scaffolding | ✅ Done |
-| 1 | Core OIDC — auth-code flow, PKCE, tokens, UserInfo, discovery | ✅ Done |
-| 2 | OAuth2 grants, introspection, revocation, claims engine | ✅ Done |
-| 3 | DCR (RFC 7591/7592), session management, logout | ✅ Done |
-| 4 | PAR, JAR, JARM, RAR, Token Exchange, JWT Bearer | ✅ Done |
-| 5 | DPoP, mTLS, private_key_jwt / client_secret_jwt | ✅ Done |
-| 6 | CIBA (poll), Device Authorization Grant | ✅ Done |
-| 7 | FAPI 1.0 Advanced, FAPI 2.0 Security/Message Signing, FAPI-CIBA | ✅ Done |
-| 8 | OpenID Federation 1.1, OID4VCI 1.0, CORS, Client ID Metadata | ✅ Done |
-| 9 | Events/hooks system, NuGet packaging, security hardening | ✅ Done |
+| Area | Status |
+|------|--------|
+| OpenID Connect Core, Discovery, Dynamic Registration, Session/RP-Initiated, Front- and Back-Channel Logout | Implemented; conformance suites run locally |
+| OAuth 2.0 grants, PKCE, PAR, JAR, JARM, RAR, Resource Indicators, Token Exchange, JWT Bearer | Implemented |
+| DPoP, mTLS (`tls_client_auth`, `self_signed_tls_client_auth`), `private_key_jwt`, `client_secret_jwt`, attestation-based client auth | Implemented |
+| Device Authorization Grant, CIBA (poll, ping, push) | Implemented |
+| FAPI 1.0 Advanced, FAPI 2.0 Security Profile and Message Signing, FAPI-CIBA | Implemented; conformance suites run locally |
+| OpenID Federation 1.1 (trust chains, metadata policy, automatic and explicit registration) | Implemented; trust marks and resolve endpoint not yet |
+| OpenID for Verifiable Credential Issuance 1.0 | Implemented |
+| Remediation plan Phases 1–5 | Complete |
+| Phase 6 — verification and release readiness | Regression suite, conformance harness, internal security review, documentation and packaging complete; **independent review pending** |
+
+Per-plan conformance results: [docs/CONFORMANCE.md](docs/CONFORMANCE.md).
+
+## Documentation
+
+| Guide | Contents |
+|-------|----------|
+| [Production checklist](docs/PRODUCTION_CHECKLIST.md) | What to configure and verify before going live |
+| [Key management](docs/KEY_MANAGEMENT.md) | Signing, encryption and federation keys; rotation; vault/HSM/KMS |
+| [Storage adapters](docs/ADAPTERS.md) | Implementing `IAdapter<T>` and `IReplayCache`, including the atomicity contract |
+| [Conformance](docs/CONFORMANCE.md) | OpenID Foundation suite results and how to reproduce them |
+| [Security review](docs/SECURITY_REVIEW.md) | Internal review findings and residual risks |
+| [Changelog](CHANGELOG.md) | Changes and breaking changes |
 
 ## Quick start
 
@@ -160,6 +176,7 @@ options.BackChannelLogoutEnabled = true;
 options.PushedAuthorizationEnabled = true;
 options.RequirePushedAuthorization = true;   // mandate PAR
 options.JarEnabled = true;
+options.RequestUriParameterSupported = true; // request_uri by reference (pre-registered request_uris)
 options.JarmEnabled = true;
 options.ResourceIndicatorsEnabled = true;
 options.RichAuthorizationRequestsEnabled = true;
@@ -196,7 +213,8 @@ var offer = await app.Services.GetRequiredService<CredentialOfferService>().Crea
 
 ## Custom adapters
 
-Implement `IAdapter<T>` to plug in any persistence backend (EF Core, Redis, etc.):
+Implement `IAdapter<T>` to plug in any persistence backend (EF Core, Redis, etc.). `ConsumeAsync`
+**must be atomic** — see [docs/ADAPTERS.md](docs/ADAPTERS.md) for the full contract:
 
 ```csharp
 public class MyGrantAdapter : IAdapter<Grant>
@@ -259,7 +277,16 @@ The provider starts at `http://localhost:5001`. Demo credentials: `alice` / `pas
 dotnet test
 ```
 
-521 tests covering all phases: authorization code, PKCE, implicit, hybrid, client credentials, refresh tokens, introspection, revocation, DCR (including RP Metadata Choices), logout, PAR, JAR (signed and encrypted), JARM, token exchange, JWT bearer, DPoP, mTLS, attestation-based client auth, device flow, CIBA, FAPI profiles, federation trust chains and registration, OID4VCI (offers, pre-authorized codes, deferred issuance, notifications), Client ID Metadata Documents, signed/encrypted UserInfo, discovery snapshot, CORS, events.
+650+ tests covering all phases, plus concurrency and per-endpoint negative security tests: authorization code, PKCE, implicit, hybrid, client credentials, refresh tokens, introspection, revocation, DCR (including RP Metadata Choices), logout, PAR, JAR (signed and encrypted), JARM, token exchange, JWT bearer, DPoP, mTLS, attestation-based client auth, device flow, CIBA, FAPI profiles, federation trust chains and registration, OID4VCI (offers, pre-authorized codes, deferred issuance, notifications), Client ID Metadata Documents, signed/encrypted UserInfo, discovery snapshot, CORS, events.
+
+The OpenID Foundation conformance suites run locally in Docker against a dedicated host:
+
+```
+cd test/NetOidc.Conformance
+./run-conformance.sh oidcc      # or fapi2, fapi2-ms, fapi1, fapi-ciba
+```
+
+See [test/NetOidc.Conformance/README.md](test/NetOidc.Conformance/README.md).
 
 ## License
 

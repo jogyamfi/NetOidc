@@ -12,7 +12,7 @@ namespace NetOidc.Provider.Vci;
 /// Nonces are single-use and expire after <see cref="ProviderOptions.VciNonceLifetimeSeconds"/>.
 /// They are stored through <see cref="IAdapter{T}"/> so multiple instances can share them.
 /// </summary>
-public sealed class VciService
+internal sealed class VciService
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly IAdapter<CredentialNonce> _nonces;

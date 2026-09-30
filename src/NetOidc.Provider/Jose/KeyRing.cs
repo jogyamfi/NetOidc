@@ -10,7 +10,7 @@ namespace NetOidc.Provider.Jose;
 /// The provider's view of its keys (from <see cref="IKeyStore"/>): which key signs for a given
 /// algorithm, which keys verify and decrypt, and what goes in the JWKS.
 /// </summary>
-public sealed class KeyRing
+internal sealed class KeyRing
 {
     /// <summary>Signing algorithms the provider supports.</summary>
     public static readonly IReadOnlySet<string> SupportedSigningAlgorithms = new HashSet<string>(StringComparer.Ordinal)

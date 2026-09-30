@@ -11,7 +11,7 @@ namespace NetOidc.Provider.Federation;
 /// <summary>A verified trust chain and the leaf metadata after all policies were applied.</summary>
 /// <param name="ImmediateSuperior">The superior that issued the leaf's subordinate statement.</param>
 /// <param name="LeafConfiguration">The leaf's (self-signed) entity configuration.</param>
-public sealed record TrustChain(
+internal sealed record TrustChain(
     string EntityId,
     string TrustAnchorId,
     string ImmediateSuperior,
@@ -24,7 +24,7 @@ public sealed record TrustChain(
 /// configuration through its <c>authority_hints</c> to a configured trust anchor, checking every
 /// signature and key hand-over, then applying the chain's metadata and metadata policies.
 /// </summary>
-public sealed class TrustChainResolver
+internal sealed class TrustChainResolver
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly SafeHttpFetcher _fetcher;

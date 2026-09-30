@@ -60,7 +60,7 @@ public static class EndpointRouteBuilderExtensions
                 new KeyValuePair<string, object?>("endpoint", route),
                 new KeyValuePair<string, object?>("status", status));
             return result;
-        });
+        }).AddEndpointFilter(ProtocolRequestFilter.InvokeAsync);
 
         IEndpointConventionBuilder WithCors(IEndpointConventionBuilder b) =>
             opts.CorsEnabled ? b.RequireCors(CorsPolicyName) : b;

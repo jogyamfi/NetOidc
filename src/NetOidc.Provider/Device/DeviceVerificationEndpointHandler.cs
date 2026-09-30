@@ -20,7 +20,7 @@ namespace NetOidc.Provider.Device;
 /// renders the actual HTML views. Fetch the prompt after the user has signed in: the token is
 /// bound to the signed-in identity.
 /// </summary>
-public sealed class DeviceVerificationEndpointHandler
+internal sealed class DeviceVerificationEndpointHandler
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly IAdapter<DeviceCode> _deviceCodeStore;
@@ -138,7 +138,7 @@ public sealed class DeviceVerificationEndpointHandler
         var remaining = deviceCode.ExpiresAt - DateTimeOffset.UtcNow;
         if (remaining > TimeSpan.Zero)
         {
-            await _deviceCodeStore.StoreAsync(deviceCode.DeviceCodeValue, deviceCode, remaining, ct);
+            await _deviceCodeStore.StoreAsync(deviceCode.DeviceCodeValue, deviceCode, Token.ExpiredRecords.TimeToLive(deviceCode.ExpiresAt), ct);
             await _deviceCodeStore.StoreAsync(key, deviceCode, remaining, ct);
         }
 

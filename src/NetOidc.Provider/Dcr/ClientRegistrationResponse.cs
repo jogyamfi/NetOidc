@@ -5,7 +5,7 @@ namespace NetOidc.Provider.Dcr;
 /// <summary>
 /// JSON body returned from DCR create/read/update operations (RFC 7591 §3.2 / RFC 7592 §3).
 /// </summary>
-public sealed class ClientRegistrationResponse
+internal sealed class ClientRegistrationResponse
 {
     [JsonPropertyName("client_id")]
     public required string ClientId { get; init; }
@@ -57,6 +57,14 @@ public sealed class ClientRegistrationResponse
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? LogoUri { get; init; }
 
+    [JsonPropertyName("policy_uri")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PolicyUri { get; init; }
+
+    [JsonPropertyName("tos_uri")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TosUri { get; init; }
+
     [JsonPropertyName("contacts")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? Contacts { get; init; }
@@ -76,6 +84,14 @@ public sealed class ClientRegistrationResponse
     [JsonPropertyName("jwks")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public System.Text.Json.JsonElement? Jwks { get; init; }
+
+    [JsonPropertyName("jwks_uri")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? JwksUri { get; init; }
+
+    [JsonPropertyName("request_uris")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? RequestUris { get; init; }
 
     [JsonPropertyName("id_token_signed_response_alg")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

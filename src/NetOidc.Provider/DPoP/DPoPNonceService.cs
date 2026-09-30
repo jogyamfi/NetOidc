@@ -12,7 +12,7 @@ namespace NetOidc.Provider.DPoP;
 /// authenticated with HMAC-SHA256, so any instance sharing
 /// <see cref="ProviderOptions.DPoPNonceSecret"/> accepts nonces issued by any other.
 /// </summary>
-public sealed class DPoPNonceService
+internal sealed class DPoPNonceService
 {
     private const int TimestampBytes = 8;
     private const int MacBytes = 16;
