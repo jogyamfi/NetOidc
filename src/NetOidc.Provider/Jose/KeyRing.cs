@@ -18,10 +18,29 @@ public sealed class KeyRing
         "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512",
     };
 
-    /// <summary>Key-management algorithms supported for encrypted request objects.</summary>
+    /// <summary>
+    /// Key-management algorithms for JWE, in both directions (request objects encrypted to the
+    /// provider; ID tokens and UserInfo encrypted to clients). Microsoft.IdentityModel supports
+    /// neither RSA-OAEP-256 nor ECDH-ES; RSA1_5 is deliberately excluded (RFC 8725 §3.2).
+    /// </summary>
     public static readonly IReadOnlySet<string> SupportedEncryptionAlgorithms = new HashSet<string>(StringComparer.Ordinal)
     {
-        "RSA-OAEP", "RSA-OAEP-256",
+        "RSA-OAEP",
+    };
+
+    /// <summary>
+    /// Content-encryption algorithms (<c>enc</c>) the provider can produce. Microsoft.IdentityModel
+    /// encrypts with AES-CBC-HMAC only; AES-GCM is supported for decryption, not encryption.
+    /// </summary>
+    public static readonly IReadOnlySet<string> SupportedContentEncryptionAlgorithms = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "A128CBC-HS256", "A192CBC-HS384", "A256CBC-HS512",
+    };
+
+    /// <summary>Content-encryption algorithms accepted in request objects encrypted to the provider.</summary>
+    public static readonly IReadOnlySet<string> SupportedContentDecryptionAlgorithms = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "A128CBC-HS256", "A192CBC-HS384", "A256CBC-HS512", "A128GCM", "A256GCM",
     };
 
     private readonly IKeyStore _store;
@@ -64,13 +83,36 @@ public sealed class KeyRing
     public IReadOnlyList<SecurityKey> GetValidationKeys() =>
         PublishedKeys(ProviderKeyUse.Signing).Select(WithKeyId).ToList();
 
+    /// <summary>Key-management algorithms of the published encryption keys.</summary>
+    public IReadOnlyList<string> EncryptionAlgorithms =>
+        PublishedKeys(ProviderKeyUse.Encryption).Select(k => k.Algorithm).Distinct(StringComparer.Ordinal).ToList();
+
     /// <summary>All published encryption keys (so requests encrypted to a retiring key still decrypt).</summary>
     public IReadOnlyList<SecurityKey> GetDecryptionKeys() =>
         PublishedKeys(ProviderKeyUse.Encryption).Select(WithKeyId).ToList();
 
-    /// <summary>Public JWKs of every published key, for the JWKS endpoint.</summary>
+    /// <summary>Public JWKs of every published signing and encryption key, for the JWKS endpoint.</summary>
     public IReadOnlyList<Dictionary<string, object>> GetPublicJwks() =>
-        _store.GetKeys().Where(k => k.IsPublished(DateTimeOffset.UtcNow)).Select(ToPublicJwk).ToList();
+        _store.GetKeys()
+            .Where(k => k.Use != ProviderKeyUse.Federation && k.IsPublished(DateTimeOffset.UtcNow))
+            .Select(ToPublicJwk).ToList();
+
+    /// <summary>Public JWKs of the federation entity keys (published in the entity configuration).</summary>
+    public IReadOnlyList<Dictionary<string, object>> GetFederationPublicJwks() =>
+        PublishedKeys(ProviderKeyUse.Federation).Select(ToPublicJwk).ToList();
+
+    /// <summary>Credentials of the newest active federation entity key.</summary>
+    /// <exception cref="InvalidOperationException">No federation key is active.</exception>
+    public SigningCredentials GetFederationSigningCredentials()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var key = _store.GetKeys()
+                      .Where(k => k.Use == ProviderKeyUse.Federation && k.IsActive(now))
+                      .OrderByDescending(k => k.NotBefore ?? DateTimeOffset.MinValue)
+                      .FirstOrDefault()
+                  ?? throw new InvalidOperationException("No active federation entity key.");
+        return new SigningCredentials(WithKeyId(key), key.Algorithm);
+    }
 
     private List<ProviderKey> ActiveSigningKeys()
     {
@@ -96,7 +138,7 @@ public sealed class KeyRing
         var jwk = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             ["kid"] = key.KeyId,
-            ["use"] = key.Use == ProviderKeyUse.Signing ? "sig" : "enc",
+            ["use"] = key.Use == ProviderKeyUse.Encryption ? "enc" : "sig",
             ["alg"] = key.Algorithm,
         };
 

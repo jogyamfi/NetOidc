@@ -26,6 +26,7 @@ public sealed class UserInfoEndpointHandler
     private readonly UserClaimsService _userClaims;
     private readonly SubjectIdentifierService _subjects;
     private readonly DPoPNonceService _dpopNonces;
+    private readonly Jose.TokenFactory _tokenFactory;
     private readonly Microsoft.Extensions.Logging.ILogger<UserInfoEndpointHandler> _logger;
 
     public UserInfoEndpointHandler(
@@ -38,10 +39,12 @@ public sealed class UserInfoEndpointHandler
         UserClaimsService userClaims,
         SubjectIdentifierService subjects,
         DPoPNonceService dpopNonces,
+        Jose.TokenFactory tokenFactory,
         Microsoft.Extensions.Logging.ILogger<UserInfoEndpointHandler> logger)
     {
         _logger = logger;
         _dpopNonces = dpopNonces;
+        _tokenFactory = tokenFactory;
         _clientStore = clientStore;
         _userClaims = userClaims;
         _subjects = subjects;
@@ -119,6 +122,10 @@ public sealed class UserInfoEndpointHandler
 
         await _events.UserInfoRequestedAsync(new UserInfoRequestedEvent(
             localSubject, scopes, DateTimeOffset.UtcNow), ct);
+
+        // OIDC Core §5.3.2: signed and/or encrypted responses when the client registered them.
+        if (client.UserInfoSignedResponseAlg is not null || client.UserInfoEncryptedResponseAlg is not null)
+            return Results.Content(_tokenFactory.CreateUserInfoJwt(client, response), "application/jwt");
 
         return Results.Json(response);
     }

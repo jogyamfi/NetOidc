@@ -5,8 +5,49 @@ changes are allowed between minor versions and are listed explicitly.
 
 ## [Unreleased]
 
-Security remediation, specification conformance and operability, Phases 1–4
+Security remediation, specification conformance, operability and completed features, Phases 1–5
 (see [docs/REMEDIATION_PLAN.md](docs/REMEDIATION_PLAN.md)).
+
+### Features — Phase 5
+
+- OpenID Federation 1.1: separate federation keys (`AddFederationKey`), trust chain resolution to
+  configured trust anchors (`FederationTrustAnchors`) with metadata policies, automatic
+  registration, and explicit registration (`/connect/federation_registration`). The entity
+  configuration now carries the same metadata as discovery.
+- OID4VCI 1.0 final: credential offers (`CredentialOfferService`), the pre-authorized code grant with
+  transaction codes and optional anonymous access, `openid_credential` authorization details,
+  `credentials` array responses with batch issuance, deferred issuance and notifications.
+- Client ID Metadata Documents: URL `client_id`s are fetched, validated and cached (`ClientIdMetadataDocumentEnabled`).
+- Signed and encrypted UserInfo responses (`userinfo_signed_response_alg`, `userinfo_encrypted_response_*`).
+- Attestation-based client authentication (`attest_jwt_client_auth`, `ClientAttestationTrustedAttesters`).
+- Dynamic registration of `private_key_jwt`/`client_secret_jwt` clients with `jwks`/`jwks_uri`,
+  signing and encryption algorithms, and RP Metadata Choices.
+- `RenderErrorPage` hook for errors that cannot be returned to the client.
+- Discovery advertises exactly what is enabled, per FAPI profile and configured keys.
+- Token responses include the granted `authorization_details` (RFC 9396 §7).
+- Fixed: encrypted request objects could never be decrypted.
+- Fixed: untrusted JSON with non-string values could cause server errors in new parsers (guarded throughout).
+
+### Breaking changes — Phase 5
+
+- `ProviderOptions.IssueCredential` returns `Task<CredentialIssuanceResult>` (return one credential
+  per holder key; a string converts implicitly). The credential response is
+  `{"credentials":[{"credential":…}]}` instead of `{"credential":…}`.
+- A credential configuration without `Scope` is only issued when the token's authorization details
+  include it.
+- The credential endpoint returns `invalid_credential_request`, `unknown_credential_configuration`
+  and `unknown_credential_identifier` (OID4VCI 1.0) instead of `invalid_request`.
+- `RSA-OAEP-256` is no longer accepted for encryption keys or client encryption (it never worked
+  with Microsoft.IdentityModel); the default is `RSA-OAEP`. AES-GCM is no longer advertised for
+  responses encrypted to clients.
+- The default `id_token_encrypted_response_enc` is `A128CBC-HS256` (was `A256CBC-HS512`).
+- Federation automatic registration requires `JarEnabled`; the federation registration endpoint
+  moved from `RegistrationEndpoint` to `FederationRegistrationEndpoint`.
+- `FederationService` takes a `DiscoveryService`; federation statements are signed with the
+  federation key rather than the OP signing key.
+- `ClientAuthenticator` takes a `ClientAttestationValidator`.
+- New startup validations: federation trust anchors, attesters, VCI and CIMD limits, encrypted-response
+  client settings.
 
 ### Operability — Phase 4
 

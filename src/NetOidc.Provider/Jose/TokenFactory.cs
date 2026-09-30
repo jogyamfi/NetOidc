@@ -114,7 +114,7 @@ public sealed class TokenFactory
             var encCreds = ResolveClientEncryptingCredentials(
                 client.JwksJson,
                 client.IdTokenEncryptedResponseAlg,
-                client.IdTokenEncryptedResponseEnc ?? SecurityAlgorithms.Aes256CbcHmacSha512);
+                client.IdTokenEncryptedResponseEnc ?? SecurityAlgorithms.Aes128CbcHmacSha256);   // OIDC Registration §2 default
             if (encCreds is not null)
                 descriptor.EncryptingCredentials = encCreds;
         }
@@ -156,6 +156,44 @@ public sealed class TokenFactory
     {
         var hash = KeyRing.HashFor(algorithm, System.Text.Encoding.ASCII.GetBytes(value));
         return Base64UrlEncoder.Encode(hash.AsSpan(0, hash.Length / 2).ToArray());
+    }
+
+    /// <summary>
+    /// Builds a UserInfo JWT (OIDC Core §5.3.2) for clients that registered
+    /// <c>userinfo_signed_response_alg</c> and/or <c>userinfo_encrypted_response_alg</c>:
+    /// signed with the requested algorithm (with <c>iss</c> and <c>aud</c>), then encrypted to the
+    /// client's key when encryption is requested.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Encryption was requested but the client has no usable key.</exception>
+    public string CreateUserInfoJwt(Client client, IReadOnlyDictionary<string, object> claims)
+    {
+        var opts = _options.Value;
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Claims = claims.ToDictionary(kv => kv.Key, kv => kv.Value),
+            // Not a token with a lifetime: omit exp/iat/nbf.
+        };
+        // OIDC Registration §2: an encrypted response is signed then encrypted (a nested JWT),
+        // with the default algorithm when no signing algorithm was registered.
+        if (client.UserInfoSignedResponseAlg is not null || client.UserInfoEncryptedResponseAlg is not null)
+        {
+            descriptor.Issuer = opts.Issuer;
+            descriptor.Audience = client.ClientId;
+            descriptor.SigningCredentials = _keys.GetSigningCredentials(client.UserInfoSignedResponseAlg);
+        }
+        if (client.UserInfoEncryptedResponseAlg is { } encAlg)
+        {
+            descriptor.EncryptingCredentials = client.JwksJson is null
+                ? null
+                : ResolveClientEncryptingCredentials(client.JwksJson, encAlg,
+                    client.UserInfoEncryptedResponseEnc ?? SecurityAlgorithms.Aes128CbcHmacSha256);
+            if (descriptor.EncryptingCredentials is null)
+                throw new InvalidOperationException(
+                    $"Client '{client.ClientId}' requested encrypted UserInfo but has no suitable encryption key.");
+        }
+
+        var handler = new JsonWebTokenHandler { SetDefaultTimesOnTokenCreation = false };
+        return handler.CreateToken(descriptor);
     }
 
     private static EncryptingCredentials? ResolveClientEncryptingCredentials(

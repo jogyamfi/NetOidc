@@ -89,4 +89,25 @@ public sealed record OAuthError(
 
     /// <summary>OID4VCI: the c_nonce is invalid, expired, or already consumed.</summary>
     public static OAuthError InvalidNonce(string? description = null) => new("invalid_nonce", description);
+
+    /// <summary>OID4VCI 1.0 §8.3.1.2: the credential request is malformed or names an unknown credential.</summary>
+    public static OAuthError InvalidCredentialRequest(string? description = null) => new("invalid_credential_request", description);
+
+    /// <summary>OID4VCI 1.0 §8.3.1.2: the requested credential configuration is not supported.</summary>
+    public static OAuthError UnknownCredentialConfiguration(string? description = null) => new("unknown_credential_configuration", description);
+
+    /// <summary>OID4VCI 1.0 §8.3.1.2: the credential identifier is unknown.</summary>
+    public static OAuthError UnknownCredentialIdentifier(string? description = null) => new("unknown_credential_identifier", description);
+
+    /// <summary>OID4VCI 1.0 §8.3.1.2: credential response encryption parameters are not supported.</summary>
+    public static OAuthError InvalidEncryptionParameters(string? description = null) => new("invalid_encryption_parameters", description);
+
+    /// <summary>OID4VCI 1.0 §9.3: the deferred credential transaction_id is unknown or expired.</summary>
+    public static OAuthError InvalidTransactionId(string? description = null) => new("invalid_transaction_id", description);
+
+    /// <summary>OID4VCI 1.0 §11.3: the notification_id is unknown.</summary>
+    public static OAuthError InvalidNotificationId(string? description = null) => new("invalid_notification_id", description);
+
+    /// <summary>OID4VCI 1.0 §11.3: the notification request is malformed.</summary>
+    public static OAuthError InvalidNotificationRequest(string? description = null) => new("invalid_notification_request", description);
 }

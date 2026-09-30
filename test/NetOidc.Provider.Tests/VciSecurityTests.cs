@@ -173,6 +173,7 @@ public sealed class VciSecurityTests
         TestWebApp.Create(o =>
         {
             o.VciEnabled = true;
+            o.VciBatchSize = 2;
             o.Scopes = [.. o.Scopes, new Scope { Name = "Degree" }];
             o.VciCredentialConfigurations.Add(new CredentialConfiguration
             {
@@ -183,7 +184,9 @@ public sealed class VciSecurityTests
             o.IssueCredential = (req, _) =>
             {
                 onIssue?.Invoke(req);
-                return Task.FromResult("issued-credential");
+                // One credential per proven key.
+                return Task.FromResult(CredentialIssuanceResult.Issued(
+                    [.. req.HolderPublicJwks.Select((_, i) => $"issued-credential-{i}").DefaultIfEmpty("issued-credential")]));
             };
         });
 

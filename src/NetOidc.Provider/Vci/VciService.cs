@@ -41,4 +41,57 @@ public sealed class VciService
         await _nonces.ConsumeAsync(nonce, ct) is { } entry && entry.ExpiresAt > DateTimeOffset.UtcNow;
 
     public int NonceLifetimeSeconds => _options.Value.VciNonceLifetimeSeconds;
+
+    /// <summary>
+    /// The credential issuer metadata (OID4VCI 1.0 §12.2.4), advertising only the endpoints and
+    /// features that are configured; <c>null</c> when VCI is disabled.
+    /// </summary>
+    public Dictionary<string, object>? BuildIssuerMetadata()
+    {
+        var opts = _options.Value;
+        if (!opts.VciEnabled)
+            return null;
+
+        var issuer = CredentialIssuer(opts);
+        string Abs(string path) => issuer + path;
+
+        var configurations = new Dictionary<string, object>();
+        foreach (var c in opts.VciCredentialConfigurations)
+        {
+            var entry = new Dictionary<string, object>
+            {
+                ["format"] = c.Format,
+                ["credential_signing_alg_values_supported"] = c.CredentialSigningAlgValuesSupported,
+                ["cryptographic_binding_methods_supported"] = c.CryptographicBindingMethodsSupported,
+                ["proof_types_supported"] = c.ProofTypesSupported.ToDictionary(
+                    kv => kv.Key,
+                    kv => (object)new Dictionary<string, object> { ["proof_signing_alg_values_supported"] = kv.Value }),
+            };
+            if (c.Scope is not null) entry["scope"] = c.Scope;
+            if (c.Vct is not null) entry["vct"] = c.Vct;
+            configurations[c.Id] = entry;
+        }
+
+        var metadata = new Dictionary<string, object>
+        {
+            ["credential_issuer"] = issuer,
+            ["credential_endpoint"] = Abs(opts.VciCredentialEndpoint),
+            ["nonce_endpoint"] = Abs(opts.VciNonceEndpoint),
+            ["credential_configurations_supported"] = configurations,
+        };
+        // A distinct credential issuer names this provider as its authorization server.
+        if (issuer != opts.Issuer.TrimEnd('/'))
+            metadata["authorization_servers"] = new[] { opts.Issuer.TrimEnd('/') };
+        if (opts.RetrieveDeferredCredential is not null)
+            metadata["deferred_credential_endpoint"] = Abs(opts.VciDeferredCredentialEndpoint);
+        if (opts.OnCredentialNotification is not null)
+            metadata["notification_endpoint"] = Abs(opts.VciNotificationEndpoint);
+        if (opts.VciBatchSize > 1)
+            metadata["batch_credential_issuance"] = new Dictionary<string, object> { ["batch_size"] = opts.VciBatchSize };
+        return metadata;
+    }
+
+    /// <summary>The credential issuer identifier: <see cref="ProviderOptions.VciCredentialIssuer"/> or the issuer.</summary>
+    public static string CredentialIssuer(ProviderOptions opts) =>
+        (string.IsNullOrEmpty(opts.VciCredentialIssuer) ? opts.Issuer : opts.VciCredentialIssuer).TrimEnd('/');
 }

@@ -60,6 +60,17 @@ public sealed class LogoutEndpointHandler
 
     public async Task<IResult> HandleAsync(HttpContext context, CancellationToken ct)
     {
+        var result = await HandleCoreAsync(context, ct);
+
+        // Invalid logout requests are shown to the End-User rather than returned as JSON.
+        if (_options.Value.RenderErrorPage is { } render &&
+            result is Microsoft.AspNetCore.Http.HttpResults.BadRequest<OAuthError> { Value: { } error })
+            return await render(context, error);
+        return result;
+    }
+
+    private async Task<IResult> HandleCoreAsync(HttpContext context, CancellationToken ct)
+    {
         var opts = _options.Value;
         var isPost = HttpMethods.IsPost(context.Request.Method) && context.Request.HasFormContentType;
         var source = isPost

@@ -116,6 +116,15 @@ public sealed class Client
     /// <summary>OIDC Registration <c>id_token_signed_response_alg</c> (e.g. "ES256"). Null = provider default.</summary>
     public string? IdTokenSignedResponseAlg { get; init; }
 
+    /// <summary>OIDC Registration <c>userinfo_signed_response_alg</c>. When set, UserInfo returns a signed JWT.</summary>
+    public string? UserInfoSignedResponseAlg { get; init; }
+
+    /// <summary>OIDC Registration <c>userinfo_encrypted_response_alg</c> (e.g. "RSA-OAEP").</summary>
+    public string? UserInfoEncryptedResponseAlg { get; init; }
+
+    /// <summary>OIDC Registration <c>userinfo_encrypted_response_enc</c> (default A128CBC-HS256).</summary>
+    public string? UserInfoEncryptedResponseEnc { get; init; }
+
     // ── ID Token encryption ──────────────────────────────────────────────────
 
     /// <summary>Key-wrapping alg for encrypted id_tokens sent to this client (e.g. "RSA-OAEP").</summary>

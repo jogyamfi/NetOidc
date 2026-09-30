@@ -221,7 +221,7 @@ public sealed class Phase8Tests
         await using var app = TestWebApp.Create(opts =>
         {
             opts.VciEnabled = true;
-            opts.IssueCredential = (_, _) => Task.FromResult("test-credential");
+            opts.IssueCredential = (_, _) => Task.FromResult<CredentialIssuanceResult>("test-credential");
         });
 
         var resp = await app.Client.PostAsync("/connect/credential",
@@ -236,7 +236,7 @@ public sealed class Phase8Tests
         await using var app = TestWebApp.Create(opts =>
         {
             opts.VciEnabled = true;
-            opts.IssueCredential = (_, _) => Task.FromResult("test-credential");
+            opts.IssueCredential = (_, _) => Task.FromResult<CredentialIssuanceResult>("test-credential");
         });
 
         var accessToken = await app.IssueUserAccessTokenAsync("alice", "test-client", "openid");
@@ -249,7 +249,7 @@ public sealed class Phase8Tests
 
         Assert.Equal(HttpStatusCode.BadRequest, credResp.StatusCode);
         var err = JsonDocument.Parse(await credResp.Content.ReadAsStringAsync());
-        Assert.Equal("invalid_request", err.RootElement.GetProperty("error").GetString());
+        Assert.Equal("invalid_credential_request", err.RootElement.GetProperty("error").GetString());
     }
 
     [Fact]
@@ -258,7 +258,7 @@ public sealed class Phase8Tests
         await using var app = TestWebApp.Create(opts =>
         {
             opts.VciEnabled = true;
-            opts.IssueCredential = (_, _) => Task.FromResult("test-credential");
+            opts.IssueCredential = (_, _) => Task.FromResult<CredentialIssuanceResult>("test-credential");
         });
 
         var accessToken = await app.IssueUserAccessTokenAsync("alice", "test-client", "openid");
@@ -285,13 +285,14 @@ public sealed class Phase8Tests
             {
                 Id = "TestDegree",
                 Format = "jwt_vc_json",
+                Scope = "profile",
                 CryptographicBindingMethodsSupported = [],
             });
             opts.IssueCredential = (_, _) =>
-                Task.FromResult(ExpectedCredential);
+                Task.FromResult<CredentialIssuanceResult>(ExpectedCredential);
         });
 
-        var accessToken = await app.IssueUserAccessTokenAsync("alice", "test-client", "openid");
+        var accessToken = await app.IssueUserAccessTokenAsync("alice", "test-client", "openid", "profile");
 
         // Request credential
         var credResp = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/credential")
@@ -303,7 +304,7 @@ public sealed class Phase8Tests
 
         Assert.Equal(HttpStatusCode.OK, credResp.StatusCode);
         var body = JsonDocument.Parse(await credResp.Content.ReadAsStringAsync());
-        Assert.Equal(ExpectedCredential, body.RootElement.GetProperty("credential").GetString());
+        Assert.Equal(ExpectedCredential, body.RootElement.GetProperty("credentials")[0].GetProperty("credential").GetString());
     }
 
     [Fact]
@@ -316,11 +317,12 @@ public sealed class Phase8Tests
             {
                 Id = "TestDegree",
                 Format = "jwt_vc_json",
+                Scope = "profile",
             });
-            opts.IssueCredential = (_, _) => Task.FromResult("test-credential");
+            opts.IssueCredential = (_, _) => Task.FromResult<CredentialIssuanceResult>("test-credential");
         });
 
-        var accessToken = await app.IssueUserAccessTokenAsync("alice", "test-client", "openid");
+        var accessToken = await app.IssueUserAccessTokenAsync("alice", "test-client", "openid", "profile");
 
         // Proof with missing jwt field for proof_type=jwt
         var payload = """{"credential_configuration_id":"TestDegree","proof":{"proof_type":"jwt","jwt":""}}""";
@@ -475,7 +477,8 @@ public sealed class Phase8Tests
             FederationEntityStatementLifetimeSeconds = 3600,
         });
         var keyProvider = new Jose.KeyRing(new Jose.ConfiguredKeyStore(opts), opts);
-        var svc = new NetOidc.Provider.Federation.FederationService(opts, keyProvider);
+        var svc = new NetOidc.Provider.Federation.FederationService(
+            opts, keyProvider, new Discovery.DiscoveryService(opts, keyProvider));
 
         var jwt = svc.BuildEntityConfiguration();
 

@@ -33,13 +33,20 @@ public sealed class DiscoveryService
         if (opts.JarmEnabled)
             responseModes.AddRange(["query.jwt", "fragment.jwt", "form_post.jwt", "jwt"]);
 
-        var grantTypes = new List<string>
+        // Response types the active profile accepts (see the FAPI checks in the authorization endpoint).
+        var isFapi2 = opts.FapiProfile is FapiProfile.Fapi2Security or FapiProfile.Fapi2MessageSigning or FapiProfile.FapiCiba;
+        var isFapi = isFapi2 || opts.FapiProfile == FapiProfile.Fapi1Advanced;
+        List<string> responseTypes = opts.FapiProfile switch
         {
-            "authorization_code",
-            "implicit",
-            "client_credentials",
-            "refresh_token",
+            FapiProfile.Fapi1Advanced => ["code", "code id_token"],
+            _ when isFapi2 => ["code"],
+            _ => ["code", "token", "id_token", "code token", "code id_token", "code id_token token", "id_token token"],
         };
+
+        var grantTypes = new List<string> { "authorization_code" };
+        if (responseTypes.Any(r => r.Contains("token")))   // token or id_token in the front channel
+            grantTypes.Add("implicit");
+        grantTypes.AddRange(["client_credentials", "refresh_token"]);
         if (opts.TokenExchangeEnabled)
             grantTypes.Add("urn:ietf:params:oauth:grant-type:token-exchange");
         if (opts.JwtBearerGrantEnabled)
@@ -48,24 +55,36 @@ public sealed class DiscoveryService
             grantTypes.Add("urn:ietf:params:oauth:grant-type:device_code");
         if (opts.CibaEnabled)
             grantTypes.Add("urn:ietf:params:oauth:grant-type:ciba");
+        if (opts.VciEnabled)
+            grantTypes.Add(Vci.CredentialOfferService.PreAuthorizedCodeGrantType);
 
-        // ── Phase 5: build token_endpoint_auth_methods_supported ────────────────
-        var tokenAuthMethods = new List<string>
-        {
-            "client_secret_basic",
-            "client_secret_post",
-            "private_key_jwt",
-            "client_secret_jwt",
-        };
+        // Client authentication: FAPI allows only private_key_jwt and mTLS (see ClientAuthenticator).
+        var tokenAuthMethods = isFapi
+            ? new List<string> { "private_key_jwt" }
+            : ["client_secret_basic", "client_secret_post", "private_key_jwt", "client_secret_jwt"];
         if (opts.MtlsEnabled)
-        {
-            tokenAuthMethods.Add("tls_client_auth");
-            tokenAuthMethods.Add("self_signed_tls_client_auth");
-        }
+            tokenAuthMethods.AddRange(["tls_client_auth", "self_signed_tls_client_auth"]);
+        if (!isFapi && opts.ClientAttestationTrustedAttesters.Count > 0)
+            tokenAuthMethods.Add(Token.ClientAttestationValidator.AuthMethod);
 
         // Public clients authenticate with PKCE only; introspection and revocation still
         // require a credential, so "none" is advertised for the token endpoint only.
-        var tokenEndpointAuthMethods = new List<string>(tokenAuthMethods) { "none" };
+        var tokenEndpointAuthMethods = isFapi ? tokenAuthMethods : new List<string>(tokenAuthMethods) { "none" };
+        List<string> assertionAlgs = isFapi
+            ? [.. KeyRing.SupportedSigningAlgorithms]
+            : [.. KeyRing.SupportedSigningAlgorithms, "HS256", "HS384", "HS512"];
+
+        // Request objects can only be encrypted to the provider when it holds encryption keys.
+        var requestEncryptionAlgs = opts.JarEnabled && _keys.EncryptionAlgorithms.Count > 0 ? _keys.EncryptionAlgorithms : null;
+
+        var authorizationDetailsTypes = new List<string>();
+        if (opts.RichAuthorizationRequestsEnabled)
+            authorizationDetailsTypes.AddRange(opts.AuthorizationDetailsTypesSupported);
+        if (opts.VciEnabled && !authorizationDetailsTypes.Contains(Vci.CredentialAuthorizationDetails.Type))
+            authorizationDetailsTypes.Add(Vci.CredentialAuthorizationDetails.Type);
+
+        IReadOnlyList<string> encryptionAlgs = [.. KeyRing.SupportedEncryptionAlgorithms];
+        IReadOnlyList<string> contentEncryptionAlgs = [.. KeyRing.SupportedContentEncryptionAlgorithms];
 
         return new DiscoveryDocument
         {
@@ -76,20 +95,12 @@ public sealed class DiscoveryService
             IntrospectionEndpoint = Abs(opts.IntrospectionEndpoint),
             RevocationEndpoint = Abs(opts.RevocationEndpoint),
             JwksUri = Abs(opts.JwksEndpoint),
-            ResponseTypesSupported =
-            [
-                "code",
-                "token",
-                "id_token",
-                "code token",
-                "code id_token",
-                "code id_token token",
-                "id_token token",
-            ],
+            ResponseTypesSupported = responseTypes,
             GrantTypesSupported = grantTypes,
             SubjectTypesSupported = subjectTypes,
             IdTokenSigningAlgValuesSupported = _keys.SigningAlgorithms,
             TokenEndpointAuthMethodsSupported = tokenEndpointAuthMethods,
+            TokenEndpointAuthSigningAlgValuesSupported = assertionAlgs,
             IntrospectionEndpointAuthMethodsSupported = tokenAuthMethods,
             RevocationEndpointAuthMethodsSupported = tokenAuthMethods,
             CodeChallengeMethodsSupported = opts.AllowPlainPkce ? ["S256", "plain"] : ["S256"],
@@ -113,33 +124,24 @@ public sealed class DiscoveryService
                 ? Abs(opts.PushedAuthorizationEndpoint) : null,
             RequirePushedAuthorizationRequests = opts.RequirePushedAuthorization,
             RequestParameterSupported = opts.JarEnabled,
-            RequestObjectSigningAlgValuesSupported = opts.JarEnabled
-                ? ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"]
-                : null,
-            RequestObjectEncryptionAlgValuesSupported = opts.JarEnabled
-                ? ["RSA-OAEP", "RSA-OAEP-256"]
-                : null,
-            RequestObjectEncryptionEncValuesSupported = opts.JarEnabled
-                ? ["A128CBC-HS256", "A256CBC-HS512", "A128GCM", "A256GCM"]
-                : null,
+            RequestObjectSigningAlgValuesSupported = opts.JarEnabled ? [.. KeyRing.SupportedSigningAlgorithms] : null,
+            RequestObjectEncryptionAlgValuesSupported = requestEncryptionAlgs,
+            RequestObjectEncryptionEncValuesSupported = requestEncryptionAlgs is null ? null : [.. KeyRing.SupportedContentDecryptionAlgorithms],
+            RequireSignedRequestObject = opts.JarEnabled && opts.JarRequireSignedRequestObject,
             AuthorizationSigningAlgValuesSupported = opts.JarmEnabled
                 ? _keys.SigningAlgorithms
                 : null,
             ResourceIndicatorsSupported = opts.ResourceIndicatorsEnabled,
-            AuthorizationDetailsTypesSupported = opts.RichAuthorizationRequestsEnabled &&
-                opts.AuthorizationDetailsTypesSupported.Count > 0
-                ? opts.AuthorizationDetailsTypesSupported.ToList()
-                : null,
-            IdTokenEncryptionAlgValuesSupported =
-                ["RSA-OAEP", "RSA-OAEP-256"],
-            IdTokenEncryptionEncValuesSupported =
-                ["A128CBC-HS256", "A256CBC-HS512", "A128GCM", "A256GCM"],
+            AuthorizationDetailsTypesSupported = authorizationDetailsTypes.Count > 0 ? authorizationDetailsTypes : null,
+            // ID tokens and UserInfo responses are encrypted to the client's keys (TokenFactory).
+            IdTokenEncryptionAlgValuesSupported = encryptionAlgs,
+            IdTokenEncryptionEncValuesSupported = contentEncryptionAlgs,
+            UserInfoSigningAlgValuesSupported = _keys.SigningAlgorithms,
+            UserInfoEncryptionAlgValuesSupported = encryptionAlgs,
+            UserInfoEncryptionEncValuesSupported = contentEncryptionAlgs,
 
             // ── Phase 5 ──────────────────────────────────────────────────────
-            DPoPSigningAlgValuesSupported = opts.DPoPEnabled
-                ? ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
-                   "ES256", "ES384", "ES512"]
-                : null,
+            DPoPSigningAlgValuesSupported = opts.DPoPEnabled ? [.. KeyRing.SupportedSigningAlgorithms] : null,
             TlsClientCertificateBoundAccessTokens = opts.MtlsEnabled,
 
             // ── Phase 6 ──────────────────────────────────────────────────────
@@ -150,18 +152,26 @@ public sealed class DiscoveryService
             BackchannelTokenDeliveryModesSupported = opts.CibaEnabled
                 ? ["poll", "ping", "push"] : null,
             BackchannelAuthenticationRequestSigningAlgValuesSupported = opts.CibaEnabled
-                ? ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
-                   "ES256", "ES384", "ES512"]
+                ? [.. KeyRing.SupportedSigningAlgorithms]
                 : null,
             BackchannelUserCodeParameterSupported = opts.CibaEnabled,
 
             // ── Phase 8 ──────────────────────────────────────────────────────
             ClientRegistrationTypesSupported = opts.FederationEnabled
-                ? (opts.DcrEnabled ? ["automatic", "explicit"] : ["explicit"])
+                ? [.. FederationRegistrationTypes(opts)]
                 : null,
-            FederationRegistrationEndpoint = opts.FederationEnabled && opts.DcrEnabled
-                ? Abs(opts.RegistrationEndpoint) : null,
+            FederationRegistrationEndpoint = opts.FederationEnabled && opts.FederationExplicitRegistrationEnabled
+                ? Abs(opts.FederationRegistrationEndpoint) : null,
+
+            PreAuthorizedGrantAnonymousAccessSupported = opts.VciEnabled && opts.VciPreAuthorizedAnonymousAccess,
+            ClientIdMetadataDocumentSupported = opts.ClientIdMetadataDocumentEnabled,
         };
+    }
+
+    private static IEnumerable<string> FederationRegistrationTypes(ProviderOptions opts)
+    {
+        if (opts.FederationAutomaticRegistrationEnabled) yield return "automatic";
+        if (opts.FederationExplicitRegistrationEnabled) yield return "explicit";
     }
 
     /// <summary>Returns the JSON Web Key Set containing all active public keys.</summary>

@@ -47,6 +47,58 @@ public sealed class ParJarSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task EncryptedRequestObject_ToPublishedKey_IsDecrypted()
+    {
+        await using var app = CreateApp();
+        var jwks = new JsonWebKeySet(await app.Client.GetStringAsync("/.well-known/jwks.json"));
+        var encryptionKey = jwks.Keys.Single(k => k.Use == "enc");
+        var signed = RequestObject(_clientKey, state: "sealed");
+        var encrypted = new JsonWebTokenHandler().EncryptToken(signed,
+            new EncryptingCredentials(encryptionKey, encryptionKey.Alg, SecurityAlgorithms.Aes128CbcHmacSha256));
+
+        var push = await PushAsync(app, [new("request", encrypted)]);
+
+        Assert.True(push.StatusCode == HttpStatusCode.Created, await push.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task EncryptedRequestObject_WithAesGcm_IsDecrypted()
+    {
+        // IdentityModel cannot produce AES-GCM JWEs, so this one is assembled by hand (RFC 7516).
+        await using var app = CreateApp();
+        var jwk = new JsonWebKeySet(await app.Client.GetStringAsync("/.well-known/jwks.json")).Keys.Single(k => k.Use == "enc");
+        using var rsa = RSA.Create(new RSAParameters
+        {
+            Modulus = Base64UrlEncoder.DecodeBytes(jwk.N), Exponent = Base64UrlEncoder.DecodeBytes(jwk.E),
+        });
+        var header = Base64UrlEncoder.Encode(JsonSerializer.Serialize(new { alg = "RSA-OAEP", enc = "A256GCM", kid = jwk.Kid, cty = "JWT" }));
+        var plaintext = Encoding.UTF8.GetBytes(RequestObject(_clientKey, state: "gcm"));
+        var cek = RandomNumberGenerator.GetBytes(32);
+        var iv = RandomNumberGenerator.GetBytes(12);
+        var ciphertext = new byte[plaintext.Length];
+        var tag = new byte[16];
+        using (var gcm = new AesGcm(cek, 16))
+            gcm.Encrypt(iv, plaintext, ciphertext, tag, Encoding.ASCII.GetBytes(header));
+        var jwe = string.Join('.', header, Base64UrlEncoder.Encode(rsa.Encrypt(cek, RSAEncryptionPadding.OaepSHA1)),
+            Base64UrlEncoder.Encode(iv), Base64UrlEncoder.Encode(ciphertext), Base64UrlEncoder.Encode(tag));
+
+        var push = await PushAsync(app, [new("request", jwe)]);
+
+        Assert.True(push.StatusCode == HttpStatusCode.Created, await push.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task EncryptedRequestObject_WithUnsupportedAlgorithm_IsRejected()
+    {
+        await using var app = CreateApp();
+        var header = Base64UrlEncoder.Encode("""{"alg":"RSA1_5","enc":"A128CBC-HS256"}""");
+
+        var push = await PushAsync(app, [new("request", $"{header}.a.b.c.d")]);
+
+        Assert.Equal(HttpStatusCode.BadRequest, push.StatusCode);
+    }
+
+    [Fact]
     public async Task ValidRequestObject_OnlyItsParametersAreUsed()
     {
         await using var app = CreateApp();

@@ -59,6 +59,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IAdapter<Consent>, InMemoryAdapter<Consent>>();
         services.TryAddSingleton<IAdapter<PendingInteraction>, InMemoryAdapter<PendingInteraction>>();
         services.TryAddSingleton<IAdapter<CredentialNonce>, InMemoryAdapter<CredentialNonce>>();
+        services.TryAddSingleton<IAdapter<PreAuthorizedCode>, InMemoryAdapter<PreAuthorizedCode>>();
+        services.TryAddSingleton<IAdapter<StoredCredentialOffer>, InMemoryAdapter<StoredCredentialOffer>>();
+        services.TryAddSingleton<IAdapter<DeferredCredentialTransaction>, InMemoryAdapter<DeferredCredentialTransaction>>();
+        services.TryAddSingleton<IAdapter<CredentialNotificationRecord>, InMemoryAdapter<CredentialNotificationRecord>>();
 
         // Phase 6 storage adapters
         services.TryAddSingleton<IAdapter<DeviceCode>, InMemoryAdapter<DeviceCode>>();
@@ -69,7 +73,18 @@ public static class ServiceCollectionExtensions
 
         // Client store: InMemoryDynamicClientStore satisfies both IClientStore and IDynamicClientStore.
         services.TryAddSingleton<InMemoryDynamicClientStore>();
-        services.TryAddSingleton<IClientStore>(sp => sp.GetRequiredService<InMemoryDynamicClientStore>());
+        // Endpoints resolve clients through ResolvingClientStore: registered clients first, then
+        // URL client_ids via the IClientResolvers (federation, Client ID Metadata Documents).
+        services.TryAddSingleton<IClientStore>(sp => new ResolvingClientStore(
+            sp.GetRequiredService<InMemoryDynamicClientStore>(),
+            sp.GetServices<IClientResolver>(),
+            sp.GetRequiredService<IAdapter<Client>>()));
+        services.TryAddSingleton<IAdapter<Client>, InMemoryAdapter<Client>>();
+        services.TryAddSingleton<SafeHttpFetcher>();
+        services.TryAddSingleton<Token.ClientAttestationValidator>();
+        // Resolver order matters: a federation entity is tried before a metadata document.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IClientResolver, FederationClientResolver>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IClientResolver, ClientIdMetadataDocumentResolver>());
         services.TryAddSingleton<IDynamicClientStore>(sp => sp.GetRequiredService<InMemoryDynamicClientStore>());
 
         // JOSE
@@ -146,10 +161,14 @@ public static class ServiceCollectionExtensions
         // Phase 8 — Federation
         services.TryAddSingleton<FederationService>();
         services.TryAddSingleton<FederationEndpointHandler>();
+        services.TryAddSingleton<TrustChainResolver>();
+        services.TryAddSingleton<FederationClientFactory>();
+        services.TryAddSingleton<FederationRegistrationEndpointHandler>();
 
         // Phase 8 — VCI
         services.TryAddSingleton<VciService>();
         services.TryAddSingleton<VciEndpointHandler>();
+        services.TryAddSingleton<CredentialOfferService>();
 
         // Phase 8 — CORS
         services.AddCors();

@@ -11,6 +11,9 @@ public enum ProviderKeyUse
 
     /// <summary>Decrypts encrypted request objects sent to the provider.</summary>
     Encryption,
+
+    /// <summary>Signs OpenID Federation entity statements (kept apart from token signing keys).</summary>
+    Federation,
 }
 
 /// <summary>

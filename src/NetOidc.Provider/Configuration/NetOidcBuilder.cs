@@ -52,13 +52,30 @@ public sealed class NetOidcBuilder
 
     /// <summary>Adds an RSA key used to decrypt request objects encrypted to the provider.</summary>
     public NetOidcBuilder AddEncryptionKey(
-        Microsoft.IdentityModel.Tokens.SecurityKey key, string algorithm = "RSA-OAEP-256",
+        Microsoft.IdentityModel.Tokens.SecurityKey key, string algorithm = "RSA-OAEP",
         DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null, string? keyId = null) =>
         AddKey(new Jose.ProviderKey
         {
             Key = key,
             Algorithm = algorithm,
             Use = Jose.ProviderKeyUse.Encryption,
+            NotBefore = notBefore,
+            NotAfter = notAfter,
+            ExplicitKeyId = keyId,
+        });
+
+    /// <summary>
+    /// Adds an OpenID Federation entity key. It signs the entity configuration and registration
+    /// responses and is published there, never in the OP's JWKS.
+    /// </summary>
+    public NetOidcBuilder AddFederationKey(
+        Microsoft.IdentityModel.Tokens.SecurityKey key, string algorithm = "RS256",
+        DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null, string? keyId = null) =>
+        AddKey(new Jose.ProviderKey
+        {
+            Key = key,
+            Algorithm = algorithm,
+            Use = Jose.ProviderKeyUse.Federation,
             NotBefore = notBefore,
             NotAfter = notAfter,
             ExplicitKeyId = keyId,

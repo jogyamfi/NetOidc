@@ -117,6 +117,13 @@ public sealed class ProviderOptions
     public string LoginPath { get; set; } = "/account/login";
 
     /// <summary>
+    /// Renders errors that cannot be returned to the client — an unknown <c>client_id</c> or an
+    /// unregistered <c>redirect_uri</c> at the authorization endpoint, or an invalid logout
+    /// request — as a page for the End-User. When <c>null</c> a JSON error body is returned.
+    /// </summary>
+    public Func<Microsoft.AspNetCore.Http.HttpContext, Errors.OAuthError, Task<Microsoft.AspNetCore.Http.IResult>>? RenderErrorPage { get; set; }
+
+    /// <summary>
     /// Path the provider redirects to when the End-User must consent. The page receives
     /// <c>client_id</c>, <c>scope</c> and <c>returnUrl</c>, records consent with
     /// <see cref="Interaction.ConsentService"/> and then redirects to <c>returnUrl</c>.
@@ -344,6 +351,14 @@ public sealed class ProviderOptions
     /// </summary>
     public int ClientAssertionMaxLifetimeSeconds { get; set; } = 300;
 
+    /// <summary>
+    /// Attesters trusted for attestation-based client authentication (<c>attest_jwt_client_auth</c>,
+    /// draft-ietf-oauth-attestation-based-client-auth): attester <c>iss</c> → its JWKS (JSON).
+    /// Empty disables the method. The PoP's <c>iat</c> must be within
+    /// <see cref="ClientAssertionMaxLifetimeSeconds"/>.
+    /// </summary>
+    public IDictionary<string, string> ClientAttestationTrustedAttesters { get; set; } = new Dictionary<string, string>();
+
     // ── Phase 6 — Device Authorization Grant (RFC 8628) ──────────────────────
 
     /// <summary>When true, the device authorization endpoint is active.</summary>
@@ -443,6 +458,32 @@ public sealed class ProviderOptions
     /// <summary>Lifetime in seconds of entity statements (default 86400 = 24 h).</summary>
     public int FederationEntityStatementLifetimeSeconds { get; set; } = 86400;
 
+    /// <summary>
+    /// <c>federation_entity</c> metadata published in the entity configuration, e.g.
+    /// <c>organization_name</c>, <c>homepage_uri</c>, <c>contacts</c>, <c>logo_uri</c>, <c>policy_uri</c>.
+    /// </summary>
+    public IDictionary<string, object> FederationEntityMetadata { get; set; } = new Dictionary<string, object>();
+
+    /// <summary>
+    /// Trust anchors: entity identifier → JWKS (JSON). A relying party is trusted only when a
+    /// valid trust chain from it ends at one of these anchors, verified with these keys.
+    /// </summary>
+    public IDictionary<string, string> FederationTrustAnchors { get; set; } = new Dictionary<string, string>();
+
+    /// <summary>Accept unregistered relying parties whose entity id resolves to a trust chain (§12.1).</summary>
+    public bool FederationAutomaticRegistrationEnabled { get; set; } = true;
+
+    /// <summary>Expose the explicit registration endpoint (§12.2).</summary>
+    public bool FederationExplicitRegistrationEnabled { get; set; } = true;
+
+    public string FederationRegistrationEndpoint { get; set; } = "/connect/federation_registration";
+
+    /// <summary>Maximum number of statements in a trust chain (default 5).</summary>
+    public int FederationMaxChainLength { get; set; } = 5;
+
+    /// <summary>Maximum size of a fetched entity statement in bytes (default 65536).</summary>
+    public int FederationMaxStatementBytes { get; set; } = 65536;
+
     // ── Phase 8 — OpenID for Verifiable Credential Issuance 1.0 ──────────────
 
     /// <summary>
@@ -472,11 +513,52 @@ public sealed class ProviderOptions
     public IList<Vci.CredentialConfiguration> VciCredentialConfigurations { get; set; } = [];
 
     /// <summary>
-    /// Hook invoked to issue a verifiable credential after the access token and key proofs
-    /// have been verified. Must return the credential as a string (JWT-VC, SD-JWT, etc.)
-    /// bound to <see cref="Vci.CredentialIssuanceRequest.HolderPublicJwks"/>.
+    /// Hook invoked to issue credentials after the access token and key proofs have been
+    /// verified. Return one credential (JWT-VC, SD-JWT, ...) per key in
+    /// <see cref="Vci.CredentialIssuanceRequest.HolderPublicJwks"/>, each bound to that key, or
+    /// <see cref="Vci.CredentialIssuanceResult.Deferred"/> when issuance is not immediate. A plain
+    /// string converts implicitly to a single issued credential.
     /// </summary>
-    public Func<Vci.CredentialIssuanceRequest, CancellationToken, Task<string>>? IssueCredential { get; set; }
+    public Func<Vci.CredentialIssuanceRequest, CancellationToken, Task<Vci.CredentialIssuanceResult>>? IssueCredential { get; set; }
+
+    /// <summary>
+    /// Hook polled by the deferred credential endpoint (OID4VCI 1.0 §9) for issuances that
+    /// <see cref="IssueCredential"/> deferred. Required when that hook ever defers.
+    /// </summary>
+    public Func<Vci.DeferredCredentialRequest, CancellationToken, Task<Vci.CredentialIssuanceResult>>? RetrieveDeferredCredential { get; set; }
+
+    /// <summary>Hook receiving wallet notifications (OID4VCI 1.0 §11): accepted, failed, deleted.</summary>
+    public Func<Vci.CredentialNotification, CancellationToken, Task>? OnCredentialNotification { get; set; }
+
+    /// <summary>Credential offer endpoint path; offers are served at <c>{path}/{id}</c> (OID4VCI 1.0 §4.1.3).</summary>
+    public string VciCredentialOfferEndpoint { get; set; } = "/connect/credential_offer";
+
+    /// <summary>Deferred credential endpoint path (OID4VCI 1.0 §9).</summary>
+    public string VciDeferredCredentialEndpoint { get; set; } = "/connect/deferred_credential";
+
+    /// <summary>Notification endpoint path (OID4VCI 1.0 §11).</summary>
+    public string VciNotificationEndpoint { get; set; } = "/connect/notification";
+
+    /// <summary>Lifetime of credential offers and their pre-authorized codes (default 300 s).</summary>
+    public int VciPreAuthorizedCodeLifetimeSeconds { get; set; } = 300;
+
+    /// <summary>Wrong <c>tx_code</c> attempts after which a pre-authorized code is revoked.</summary>
+    public int VciTxCodeMaxAttempts { get; set; } = 5;
+
+    /// <summary>
+    /// When true, the pre-authorized code grant is accepted without client authentication or a
+    /// <c>client_id</c> (OID4VCI 1.0 §6.1, <c>pre-authorized_grant_anonymous_access_supported</c>).
+    /// </summary>
+    public bool VciPreAuthorizedAnonymousAccess { get; set; } = false;
+
+    /// <summary>Maximum number of key proofs (and credentials) per request; above 1 enables batch issuance.</summary>
+    public int VciBatchSize { get; set; } = 1;
+
+    /// <summary>How long a deferred transaction can be redeemed (default 1 day).</summary>
+    public int VciDeferredTransactionLifetimeSeconds { get; set; } = 86400;
+
+    /// <summary>How long a <c>notification_id</c> can be used (default 1 day).</summary>
+    public int VciNotificationLifetimeSeconds { get; set; } = 86400;
 
     // ── Phase 8 — CORS ─────────────────────────────────────────────────────────
 
@@ -488,4 +570,21 @@ public sealed class ProviderOptions
     /// allowed; a wildcard is never used. Dynamically registered clients must be listed here.
     /// </summary>
     public IList<string> CorsAllowedOrigins { get; set; } = [];
+
+    // ── Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document) ──
+
+    /// <summary>
+    /// Accept https URLs as <c>client_id</c>s: the provider fetches the client's metadata document
+    /// from the URL and treats it as the registration (public or <c>private_key_jwt</c> clients).
+    /// </summary>
+    public bool ClientIdMetadataDocumentEnabled { get; set; } = false;
+
+    /// <summary>Hosts whose metadata documents are accepted; empty means any public host.</summary>
+    public IList<string> ClientIdMetadataDocumentAllowedHosts { get; set; } = [];
+
+    /// <summary>Maximum size of a metadata document (or its JWKS) in bytes (default 5120).</summary>
+    public int ClientIdMetadataDocumentMaxBytes { get; set; } = 5120;
+
+    /// <summary>Cache lifetime when the document has no <c>Cache-Control: max-age</c> (default 3600 s).</summary>
+    public int ClientIdMetadataDocumentCacheSeconds { get; set; } = 3600;
 }

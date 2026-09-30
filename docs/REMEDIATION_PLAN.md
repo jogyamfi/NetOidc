@@ -331,25 +331,43 @@ refuses to start in Production. Differences from the text above, and follow-ups:
 Discovery and README currently advertise capabilities that are missing or partial.
 With production readiness as the goal, these are implemented rather than removed.
 
-- [ ] **P5.1 Discovery accuracy** — generate metadata from what is actually enabled:
+- [x] **P5.1 Discovery accuracy** — generate metadata from what is actually enabled:
   `claims_parameter_supported` (after P3.5), response types per profile, auth methods incl.
   `none`, encryption algs only when supported, `backchannel_user_code_parameter_supported`
   (after P3.14), `prompt_values_supported`, `dpop_signing_alg_values_supported`. Snapshot-test it.
-- [ ] **P5.2 UserInfo signing/encryption** — `userinfo_signed_response_alg` /
+- [x] **P5.2 UserInfo signing/encryption** — `userinfo_signed_response_alg` /
   `userinfo_encrypted_response_*`.
-- [ ] **P5.3 OpenID Federation 1.1**
+- [x] **P5.3 OpenID Federation 1.1**
   ([FederationService.cs](../src/NetOidc.Provider/Federation/FederationService.cs)) — separate
   federation entity keys; correct `federation_entity` metadata (current `federation_fetch_endpoint`
   is wrong); trust-chain resolution and metadata policy; automatic and explicit registration
   (currently advertised but not implemented); reuse the discovery builder instead of the
   duplicated, divergent metadata.
-- [ ] **P5.4 OID4VCI 1.0 final** — `proofs` object and `credentials` array, credential offer,
+- [x] **P5.4 OID4VCI 1.0 final** — `proofs` object and `credentials` array, credential offer,
   pre-authorized code grant, `authorization_details` of type `openid_credential`, deferred
   issuance, notification endpoint.
-- [ ] **P5.5 Client ID Metadata Document** — fetch/cache/validate metadata for URL `client_id`s
+- [x] **P5.5 Client ID Metadata Document** — fetch/cache/validate metadata for URL `client_id`s
   (SSRF-safe HTTP client, size limits, cache TTL).
-- [ ] **P5.6 Other plan items** — attestation-based client auth, RP Metadata Choices, pluggable
+- [x] **P5.6 Other plan items** — attestation-based client auth, RP Metadata Choices, pluggable
   error rendering hooks.
+
+### Phase 5 — implementation notes (branch `feat/p5-features`)
+
+All six items are implemented with tests (521 tests pass, stable over repeated runs). The sample
+host was started and its discovery, JWKS and feature endpoints checked. Outbound fetches for
+federation, Client ID Metadata Documents and DCR `jwks_uri` go through `SafeHttpFetcher` (the SSRF-safe
+untrusted client: https only, no redirects, public addresses only, size limits). Differences from
+the text above, and follow-ups:
+
+| Item | Note |
+|------|------|
+| P5.1 | Discovery follows the configuration: response and grant types per FAPI profile, FAPI-only client authentication methods, `attest_jwt_client_auth`, `token_endpoint_auth_signing_alg_values_supported`, request-object encryption only with JAR and encryption keys, UserInfo signing/encryption algorithms, `require_signed_request_object`, the pre-authorized grant and `pre-authorized_grant_anonymous_access_supported`, `openid_credential` authorization details and `client_id_metadata_document_supported`. The default document is snapshot-tested key by key. |
+| P5.1 | **Fixed (BREAKING):** Microsoft.IdentityModel supports RSA-OAEP-256 neither for encryption nor decryption, and AES-GCM only for decryption. RSA-OAEP-256 (the previous generated/default encryption key algorithm) is now rejected at startup; `RSA-OAEP` is the only key-management algorithm; encryption to clients uses AES-CBC-HMAC only. Encrypted request objects never worked (the JWE was validated together with the inner signature, without the client's keys); they are now decrypted, then verified, with CBC and GCM content encryption. |
+| P5.2 | `Client.UserInfoSignedResponseAlg` / `UserInfoEncryptedResponseAlg` / `UserInfoEncryptedResponseEnc` return `application/jwt`; an encrypted response is always signed first (nested JWT). The ID-token `enc` default is now `A128CBC-HS256` (OIDC Registration §2). Static clients' encryption settings are validated at startup. |
+| P5.3 | Separate federation entity keys (`AddFederationKey`, generated in Development), never published in the OP JWKS. The entity configuration reuses the discovery document. `TrustChainResolver` walks `authority_hints` to a configured trust anchor (`FederationTrustAnchors`: entity id → JWKS), verifying every statement and key hand-over, and applies `metadata` and `metadata_policy` (`value`, `add`, `default`, `one_of`, `subset_of`, `superset_of`, `essential`; unknown operators reject the chain). Automatic registration resolves URL `client_id`s through the chain (`private_key_jwt`, signed request objects, consent; requires JAR); explicit registration at `FederationRegistrationEndpoint` answers with a signed `explicit-registration-response+jwt`. Registrations live until the chain expires. Not implemented: trust marks, `signed_jwks_uri`, `trust_chain` request parameter, resolve/list endpoints. |
+| P5.4 | Credential offers (`CredentialOfferService.CreateAsync`, served by reference), the pre-authorized code grant with `tx_code` (attempt-limited) and optional anonymous access, `openid_credential` authorization details with `credential_identifiers`, the `credentials` array response, batch issuance (`VciBatchSize`), deferred issuance (`RetrieveDeferredCredential`) and notifications (`OnCredentialNotification`). **BREAKING:** `IssueCredential` returns `CredentialIssuanceResult` (a string converts implicitly); a configuration without `Scope` is only issued through authorization details (previously any End-User token could obtain it). Token responses now include `authorization_details` (RFC 9396 §7). Credential response encryption is refused with `invalid_encryption_parameters`. |
+| P5.5 | `ClientIdMetadataDocumentEnabled`: an unknown https `client_id` with a path is fetched, validated (`client_id` must match, no secrets, `none` or `private_key_jwt`, code flow only, redirect URIs validated) and cached per `Cache-Control` (1 min–1 day). Optional host allowlist. Resolved clients always require PKCE and consent. |
+| P5.6 | `RenderErrorPage` renders unredirectable authorization and logout errors. Attestation-based client authentication (`attest_jwt_client_auth`, trusted attesters in `ClientAttestationTrustedAttesters`, single-use PoP `jti`); no challenge endpoint yet. DCR accepts `jwks`/`jwks_uri` (fetched once; rotate with an update), `private_key_jwt`/`client_secret_jwt`, signing and encryption algorithms, `require_signed_request_object`, and RP Metadata Choices (`*_supported` lists; the provider picks the first value it supports; the singular parameter wins). DCR updates keep `client_id_issued_at` and the registration access token (unless rotation is on). |
 
 ---
 
