@@ -42,13 +42,14 @@ public sealed class LogoutTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task EndSession_Confirmed_Returns204WithoutRedirectUri()
+    public async Task EndSession_Confirmed_ShowsSignedOutPageWithoutRedirectUri()
     {
         await SignInAsync("user1b");
 
         var resp = await ConfirmLogoutAsync(_app, []);
 
-        Assert.Equal(HttpStatusCode.NoContent, resp.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Contains("signed out", await resp.Content.ReadAsStringAsync());
     }
 
     [Fact]

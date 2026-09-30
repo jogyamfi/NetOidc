@@ -7,7 +7,7 @@ namespace NetOidc.Provider.Configuration;
 /// at startup. Registered as <see cref="IValidateOptions{TOptions}"/> and only runs when
 /// <see cref="ProviderOptions.FapiProfileValidationEnabled"/> is <c>true</c>.
 /// </summary>
-public sealed class FapiProfileValidator : IValidateOptions<ProviderOptions>
+internal sealed class FapiProfileValidator : IValidateOptions<ProviderOptions>
 {
     private static readonly string[] Fapi1AllowedAuthMethods =
         ["private_key_jwt", "tls_client_auth", "self_signed_tls_client_auth"];

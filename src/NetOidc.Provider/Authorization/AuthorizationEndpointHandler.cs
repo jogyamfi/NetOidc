@@ -24,7 +24,7 @@ namespace NetOidc.Provider.Authorization;
 /// JARM, resource indicators (RFC 8707), rich authorization requests (RFC 9396), the OIDC
 /// <c>prompt</c>/<c>max_age</c>/<c>id_token_hint</c>/<c>claims</c> parameters and FAPI profiles.
 /// </summary>
-public sealed class AuthorizationEndpointHandler
+internal sealed class AuthorizationEndpointHandler
 {
     private const string InteractionParameter = "interaction";
 
@@ -161,10 +161,12 @@ public sealed class AuthorizationEndpointHandler
         var effectiveParams = resolved.Params;
         if (resolved.Error is not null)
         {
+            // The redirect URI comes only from the (verified) request and must be registered.
             var knownRedirect = GetParam(effectiveParams, "redirect_uri");
-            var knownState = GetParam(effectiveParams, "state");
+            var delivery = WithRequestObjectHints(effectiveParams);
             if (!string.IsNullOrEmpty(knownRedirect) && IsValidRedirectUri(client, knownRedirect))
-                return SendError(knownRedirect, knownState, null, resolved.Error);
+                return SendError(knownRedirect, GetParam(delivery, "state"), ErrorResponseMode(delivery), resolved.Error,
+                    ErrorJarmClient(delivery, client));
             return ShowErrorPage(resolved.Error.Description ?? resolved.Error.Error);
         }
 
@@ -192,9 +194,18 @@ public sealed class AuthorizationEndpointHandler
 
         // ── Response type (RFC 7591 response_types / grant_types) ─────────────
         var normalizedResponseType = NormalizeResponseType(rawResponseType);
-        if (!KnownResponseTypes.Contains(normalizedResponseType))
-            return SendError(redirectUri, state, null,
-                OAuthError.UnsupportedResponseType($"Unsupported response_type: {rawResponseType}"));
+        // Response types the server does not offer (per FAPI profile, as in discovery) are
+        // unsupported_response_type; unauthorized_client is for ones the client may not use.
+        if (!KnownResponseTypes.Contains(normalizedResponseType) ||
+            !Discovery.DiscoveryService.ResponseTypesFor(opts).Contains(normalizedResponseType))
+            return SendError(redirectUri, state, ErrorResponseMode(effectiveParams),
+                OAuthError.UnsupportedResponseType($"Unsupported response_type: {rawResponseType}" + opts.FapiProfile switch
+                {
+                    FapiProfile.Fapi1Advanced => " (FAPI 1.0 Advanced profile)",
+                    FapiProfile.Fapi2Security or FapiProfile.Fapi2MessageSigning => " (FAPI 2.0 profile)",
+                    FapiProfile.FapiCiba => " (FAPI-CIBA profile)",
+                    _ => "",
+                }), ErrorJarmClient(effectiveParams, client));
 
         var responseTokens = normalizedResponseType.Split(' ');
         var includesCode = responseTokens.Contains("code");
@@ -205,14 +216,16 @@ public sealed class AuthorizationEndpointHandler
         if (!client.ResponseTypes.Any(rt => NormalizeResponseType(rt) == normalizedResponseType) ||
             (includesCode && !client.AllowedGrantTypes.Contains("authorization_code")) ||
             ((includesIdToken || includesToken) && !isCode && !client.AllowedGrantTypes.Contains("implicit")))
-            return SendError(redirectUri, state, null,
-                OAuthError.UnauthorizedClient($"client may not use response_type '{rawResponseType}'"));
+            return SendError(redirectUri, state, ErrorResponseMode(effectiveParams),
+                OAuthError.UnauthorizedClient($"client may not use response_type '{rawResponseType}'"),
+                ErrorJarmClient(effectiveParams, client));
 
         // ── Response mode (plain + JARM) ──────────────────────────────────────
         var (baseMode, useJarm) = ParseResponseMode(responseMode, isCode, opts);
         if (baseMode is null)
-            return SendError(redirectUri, state, null,
-                OAuthError.InvalidRequest($"Unsupported response_mode: {responseMode}"));
+            return SendError(redirectUri, state, ErrorResponseMode(effectiveParams),
+                OAuthError.InvalidRequest($"Unsupported response_mode: {responseMode}"),
+                ErrorJarmClient(effectiveParams, client));
 
         // Tokens must never travel in the query string.
         if (baseMode == "query" && !isCode && !useJarm)
@@ -220,7 +233,7 @@ public sealed class AuthorizationEndpointHandler
                 OAuthError.InvalidRequest("response_mode=query is not permitted when tokens are returned"));
 
         // Every error from here on is returned the way the client asked for responses.
-        IResult Fail(OAuthError error) => SendError(redirectUri, state, baseMode, error);
+        IResult Fail(OAuthError error) => SendError(redirectUri, state, baseMode, error, useJarm ? client : null);
 
         // ── Scopes ────────────────────────────────────────────────────────────
         var requestedScopes = scope.Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct().ToList();
@@ -353,6 +366,14 @@ public sealed class AuthorizationEndpointHandler
             await _interactions.FindAsync(interactionId, ct) is { } pending && pending.ClientId == client.ClientId)
             resumed = pending;
 
+        // The End-User cancelled the login or denied consent (OIDC Core §3.1.2.6).
+        if (resumed?.DenialError is { } denial)
+        {
+            await ConsumeParAsync(resolved, ct);
+            await _interactions.RemoveAsync(resumed.InteractionId, ct);
+            return Fail(new OAuthError(denial, resumed.DenialDescription));
+        }
+
         var outcome = await _interactionService.EvaluateAsync(new InteractionRequest
         {
             HttpContext = context,
@@ -434,6 +455,7 @@ public sealed class AuthorizationEndpointHandler
                 Nonce = NullIfEmpty(nonce),
                 CodeChallenge = NullIfEmpty(codeChallenge),
                 CodeChallengeMethod = string.IsNullOrEmpty(codeChallenge) ? null : codeChallengeMethod,
+                DPoPJkt = NullIfEmpty(GetParam(effectiveParams, "dpop_jkt")),
                 AuthTime = authTime,
                 ExpiresAt = DateTimeOffset.UtcNow + codeLifetime,
                 ClaimsRequest = NullIfEmpty(claimsParam),
@@ -468,14 +490,16 @@ public sealed class AuthorizationEndpointHandler
             response["expires_in"] = issued.ExpiresIn.ToString();
         }
 
-        // ── ID token directly (implicit / hybrid), with at_hash and c_hash ────
+        // ── ID token directly (implicit / hybrid), with at_hash, c_hash and s_hash ──
         if (includesIdToken)
         {
             response["id_token"] = await _issuer.CreateIdTokenAsync(client, localSubject, grantedScopes,
                 new IdTokenParameters(authTime, NullIfEmpty(nonce), outcome.Acr, outcome.Amr, sid,
                     NullIfEmpty(claimsParam), Code: codeValue,
                     // OIDC Core §5.4: without an access token the scope claims go in the ID token.
-                    IncludeScopeClaims: !includesToken && !includesCode),
+                    IncludeScopeClaims: !includesToken && !includesCode,
+                    // FAPI 1.0 Advanced §5.2.2.1: s_hash protects state in front-channel ID tokens.
+                    State: NullIfEmpty(state)),
                 accessToken, ct);
         }
 
@@ -525,10 +549,24 @@ public sealed class AuthorizationEndpointHandler
         var requestJwt = GetParam(raw, "request");
         var requireRequestObject = client.RequireSignedRequestObject || opts.JarRequireSignedRequestObject;
 
+        // ── request_uri by reference (RFC 9101 §5.2): fetch, then treat as a request parameter ──
+        if (!string.IsNullOrEmpty(requestUri) &&
+            !requestUri.StartsWith("urn:ietf:params:oauth:request_uri:", StringComparison.Ordinal) &&
+            opts.JarEnabled && opts.RequestUriParameterSupported)
+        {
+            if (!string.IsNullOrEmpty(requestJwt))
+                return new(raw, OAuthError.InvalidRequest("request and request_uri must not both be present"));
+            var (fetched, fetchError) = await _requestObjectValidator.FetchAsync(requestUri, client, ct);
+            if (fetchError is not null)
+                return new(raw, OAuthError.InvalidRequestUri(fetchError));
+            requestJwt = fetched!;
+            requestUri = string.Empty;
+        }
+
         // ── PAR: request_uri ───────────────────────────────────────────────────
         if (!string.IsNullOrEmpty(requestUri))
         {
-            // RFC 9101 request_uri by reference is not fetched; only pushed requests are accepted.
+            // request_uri by reference is only fetched when RequestUriParameterSupported (above).
             if (!requestUri.StartsWith("urn:ietf:params:oauth:request_uri:", StringComparison.Ordinal))
                 return new(raw, OAuthError.RequestUriNotSupported(
                     "only request_uri values from the pushed authorization endpoint are supported"));
@@ -734,21 +772,72 @@ public sealed class AuthorizationEndpointHandler
     private static IResult ShowErrorPage(string message) =>
         Results.BadRequest(OAuthError.InvalidRequest(message));
 
-    private static IResult SendError(
-        string redirectUri, string? state, string? responseMode, OAuthError error)
+    /// <summary>
+    /// For a request whose request object could not be used (unsupported, unverifiable): adds the
+    /// object's <c>response_mode</c>, <c>response_type</c> and <c>state</c> — read without
+    /// verification — when the outer request lacks them. They only decide how the error reaches
+    /// the already-validated redirect URI, so the client gets it where it expects it.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string> WithRequestObjectHints(IReadOnlyDictionary<string, string> parameters)
     {
-        var p = new Dictionary<string, string?> { ["error"] = error.Error };
-        if (error.Description is not null) p["error_description"] = error.Description;
-        if (!string.IsNullOrEmpty(state)) p["state"] = state;
-        var nonNull = p.Where(kv => kv.Value is not null)
-            .ToDictionary(kv => kv.Key, kv => kv.Value!);
-        return responseMode switch
+        var requestObject = GetParam(parameters, "request");
+        if (string.IsNullOrEmpty(requestObject) || requestObject.Count(c => c == '.') != 2)
+            return parameters;
+        try
         {
-            "fragment" => Results.Redirect(BuildFragmentUri(redirectUri, nonNull)),
-            "form_post" => Results.Content(BuildFormPostHtml(redirectUri, nonNull), "text/html"),
-            _ => Results.Redirect(QueryHelpers.AddQueryString(redirectUri,
-                    nonNull.ToDictionary(kv => kv.Key, kv => (string?)kv.Value))),
-        };
+            using var payload = JsonDocument.Parse(Base64UrlEncoder.Decode(requestObject.Split('.')[1]));
+            var merged = new Dictionary<string, string>(parameters, StringComparer.Ordinal);
+            foreach (var name in new[] { "response_mode", "response_type", "state" })
+                if (!merged.ContainsKey(name) &&
+                    payload.RootElement.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String)
+                    merged[name] = value.GetString()!;
+            return merged;
+        }
+        catch (Exception ex) when (ex is JsonException or FormatException or ArgumentException or InvalidOperationException)
+        {
+            return parameters;
+        }
+    }
+
+    /// <summary>
+    /// How to return an error found before the response mode is settled: the requested
+    /// <c>response_mode</c> when it is a plain mode (or the base of a JARM mode), otherwise the
+    /// default for the <c>response_type</c> — fragment whenever tokens would be returned
+    /// (OAuth 2.0 Multiple Response Types §5), query for <c>code</c>.
+    /// </summary>
+    private static string? ErrorResponseMode(IReadOnlyDictionary<string, string> parameters)
+    {
+        var mode = GetParam(parameters, "response_mode");
+        if (mode.EndsWith(".jwt", StringComparison.Ordinal))
+            mode = mode[..^4];
+        if (mode is "query" or "fragment" or "form_post")
+            return mode;
+        return NormalizeResponseType(GetParam(parameters, "response_type")) is "" or "code" or "none"
+            ? null
+            : "fragment";
+    }
+
+    /// <summary>
+    /// Returns an authorization error to the client's redirect URI (RFC 6749 §4.1.2.1) with
+    /// <c>iss</c> when issuer identification is on (RFC 9207 §2), JARM-wrapped when
+    /// <paramref name="jarmClient"/> is set (JARM §2.3: errors are signed like any response).
+    /// </summary>
+    private IResult SendError(
+        string redirectUri, string? state, string? responseMode, OAuthError error, Client? jarmClient = null)
+    {
+        var p = new Dictionary<string, string?> { ["error"] = error.Error, ["error_description"] = error.Description };
+        if (!string.IsNullOrEmpty(state)) p["state"] = state;
+        if (_options.Value.IssuerIdentificationEnabled) p["iss"] = _options.Value.Issuer.TrimEnd('/');
+        return BuildRedirect(redirectUri, responseMode, p, jarmClient);
+    }
+
+    /// <summary>JARM applies to an early error when the request asked for a <c>jwt</c> response mode.</summary>
+    private Client? ErrorJarmClient(IReadOnlyDictionary<string, string> parameters, Client client)
+    {
+        var mode = GetParam(parameters, "response_mode");
+        return _options.Value.JarmEnabled && (mode == "jwt" || mode.EndsWith(".jwt", StringComparison.Ordinal))
+            ? client
+            : null;
     }
 
     private IResult BuildRedirect(

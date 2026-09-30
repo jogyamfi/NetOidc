@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -103,7 +104,12 @@ public sealed class DcrMetadataAndAttestationTests
         });
 
         Assert.Equal(HttpStatusCode.Created, status);
-        Assert.Equal("remote", body.GetProperty("jwks").GetProperty("keys")[0].GetProperty("kid").GetString());
+        // RFC 7591 §3.2.1: the response echoes the metadata as registered (jwks_uri, not jwks).
+        Assert.Equal("https://rp.example.org/jwks.json", body.GetProperty("jwks_uri").GetString());
+        Assert.False(body.TryGetProperty("jwks", out _));
+        var client = await app.Services.GetRequiredService<Abstractions.Adapters.IClientStore>()
+            .FindClientAsync(body.GetProperty("client_id").GetString()!);
+        Assert.Contains("\"remote\"", client!.JwksJson);
     }
 
     [Fact]

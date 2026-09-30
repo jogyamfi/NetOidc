@@ -5,7 +5,7 @@ using NetOidc.Provider.Configuration;
 namespace NetOidc.Provider.Token;
 
 /// <summary>Parses and authorises RFC 8707 resource indicators.</summary>
-public static class ResourceIndicators
+internal static class ResourceIndicators
 {
     /// <summary>
     /// Splits a <c>resource</c> parameter value. Repeated query/form parameters are joined with

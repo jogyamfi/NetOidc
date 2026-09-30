@@ -19,4 +19,12 @@ public sealed class PendingInteraction
     public required string ClientId { get; init; }
     public required InteractionKind Kind { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// Set when the End-User cancelled or refused (e.g. <c>access_denied</c>); the resumed request
+    /// then returns this error to the client.
+    /// </summary>
+    public string? DenialError { get; init; }
+
+    public string? DenialDescription { get; init; }
 }

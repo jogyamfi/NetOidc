@@ -40,7 +40,7 @@ public sealed class AsyncFlowAndLogoutTests
     {
         ClientId = $"ciba-{mode}",
         ClientSecret = "secret",
-        AllowedGrantTypes = ["urn:ietf:params:oauth:grant-type:ciba", "refresh_token"],
+        AllowedGrantTypes = ["urn:openid:params:grant-type:ciba", "refresh_token"],
         AllowedScopes = ["openid", "profile"],
         CibaDeliveryMode = mode,
         CibaClientNotificationEndpoint = "https://rp.example.com/ciba/notify",
@@ -76,7 +76,7 @@ public sealed class AsyncFlowAndLogoutTests
 
     private static Task<HttpResponseMessage> PollAsync(TestWebApp app, string clientId, string authReqId) =>
         Oidc.TokenAsync(app,
-            [new("grant_type", "urn:ietf:params:oauth:grant-type:ciba"), new("auth_req_id", authReqId)],
+            [new("grant_type", "urn:openid:params:grant-type:ciba"), new("auth_req_id", authReqId)],
             (clientId, "secret"));
 
     [Fact]

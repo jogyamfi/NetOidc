@@ -5,7 +5,7 @@ using NetOidc.Provider.Jose;
 namespace NetOidc.Provider.Discovery;
 
 /// <summary>Builds the OIDC discovery document and JWKS response from provider configuration.</summary>
-public sealed class DiscoveryService
+internal sealed class DiscoveryService
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly KeyRing _keys;
@@ -17,6 +17,14 @@ public sealed class DiscoveryService
         _options = options;
         _keys = keys;
     }
+
+    /// <summary>Response types the provider offers under its FAPI profile (normalised, space-separated).</summary>
+    internal static List<string> ResponseTypesFor(ProviderOptions opts) => opts.FapiProfile switch
+    {
+        FapiProfile.Fapi1Advanced => ["code", "code id_token"],
+        FapiProfile.Fapi2Security or FapiProfile.Fapi2MessageSigning or FapiProfile.FapiCiba => ["code"],
+        _ => ["code", "token", "id_token", "code token", "code id_token", "code id_token token", "id_token token"],
+    };
 
     public DiscoveryDocument BuildDocument()
     {
@@ -36,12 +44,7 @@ public sealed class DiscoveryService
         // Response types the active profile accepts (see the FAPI checks in the authorization endpoint).
         var isFapi2 = opts.FapiProfile is FapiProfile.Fapi2Security or FapiProfile.Fapi2MessageSigning or FapiProfile.FapiCiba;
         var isFapi = isFapi2 || opts.FapiProfile == FapiProfile.Fapi1Advanced;
-        List<string> responseTypes = opts.FapiProfile switch
-        {
-            FapiProfile.Fapi1Advanced => ["code", "code id_token"],
-            _ when isFapi2 => ["code"],
-            _ => ["code", "token", "id_token", "code token", "code id_token", "code id_token token", "id_token token"],
-        };
+        var responseTypes = ResponseTypesFor(opts);
 
         var grantTypes = new List<string> { "authorization_code" };
         if (responseTypes.Any(r => r.Contains("token")))   // token or id_token in the front channel
@@ -54,7 +57,7 @@ public sealed class DiscoveryService
         if (opts.DeviceFlowEnabled)
             grantTypes.Add("urn:ietf:params:oauth:grant-type:device_code");
         if (opts.CibaEnabled)
-            grantTypes.Add("urn:ietf:params:oauth:grant-type:ciba");
+            grantTypes.Add("urn:openid:params:grant-type:ciba");
         if (opts.VciEnabled)
             grantTypes.Add(Vci.CredentialOfferService.PreAuthorizedCodeGrantType);
 
@@ -70,9 +73,13 @@ public sealed class DiscoveryService
         // Public clients authenticate with PKCE only; introspection and revocation still
         // require a credential, so "none" is advertised for the token endpoint only.
         var tokenEndpointAuthMethods = isFapi ? tokenAuthMethods : new List<string>(tokenAuthMethods) { "none" };
+        // FAPI 1.0 Advanced §8.6 / FAPI 2.0 §5.4.1: clients sign with PS256 or ES256 only.
+        List<string> clientSigningAlgs = isFapi
+            ? [.. Jose.RequestObjectValidator.FapiSigningAlgorithms]
+            : [.. KeyRing.SupportedSigningAlgorithms];
         List<string> assertionAlgs = isFapi
-            ? [.. KeyRing.SupportedSigningAlgorithms]
-            : [.. KeyRing.SupportedSigningAlgorithms, "HS256", "HS384", "HS512"];
+            ? clientSigningAlgs
+            : [.. clientSigningAlgs, "HS256", "HS384", "HS512"];
 
         // Request objects can only be encrypted to the provider when it holds encryption keys.
         var requestEncryptionAlgs = opts.JarEnabled && _keys.EncryptionAlgorithms.Count > 0 ? _keys.EncryptionAlgorithms : null;
@@ -110,7 +117,8 @@ public sealed class DiscoveryService
             ClaimsSupported = ["sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "acr", "amr", "azp", "sid",
                 .. Claims.ClaimsEngine.ClaimsForScopes(opts.Scopes.Select(s => s.Name), opts.Scopes).Order()],
             PromptValuesSupported = ["none", "login", "consent", "select_account"],
-            RequestUriParameterSupported = false,
+            RequestUriParameterSupported = opts.JarEnabled && opts.RequestUriParameterSupported,
+            RequireRequestUriRegistration = opts.JarEnabled && opts.RequestUriParameterSupported ? true : null,
             AuthorizationResponseIssParameterSupported = opts.IssuerIdentificationEnabled,
             EndSessionEndpoint = opts.LogoutEnabled ? Abs(opts.EndSessionEndpoint) : null,
             RegistrationEndpoint = opts.DcrEnabled ? Abs(opts.RegistrationEndpoint) : null,
@@ -124,7 +132,7 @@ public sealed class DiscoveryService
                 ? Abs(opts.PushedAuthorizationEndpoint) : null,
             RequirePushedAuthorizationRequests = opts.RequirePushedAuthorization,
             RequestParameterSupported = opts.JarEnabled,
-            RequestObjectSigningAlgValuesSupported = opts.JarEnabled ? [.. KeyRing.SupportedSigningAlgorithms] : null,
+            RequestObjectSigningAlgValuesSupported = opts.JarEnabled ? clientSigningAlgs : null,
             RequestObjectEncryptionAlgValuesSupported = requestEncryptionAlgs,
             RequestObjectEncryptionEncValuesSupported = requestEncryptionAlgs is null ? null : [.. KeyRing.SupportedContentDecryptionAlgorithms],
             RequireSignedRequestObject = opts.JarEnabled && opts.JarRequireSignedRequestObject,
@@ -141,7 +149,7 @@ public sealed class DiscoveryService
             UserInfoEncryptionEncValuesSupported = contentEncryptionAlgs,
 
             // ── Phase 5 ──────────────────────────────────────────────────────
-            DPoPSigningAlgValuesSupported = opts.DPoPEnabled ? [.. KeyRing.SupportedSigningAlgorithms] : null,
+            DPoPSigningAlgValuesSupported = opts.DPoPEnabled ? clientSigningAlgs : null,
             TlsClientCertificateBoundAccessTokens = opts.MtlsEnabled,
 
             // ── Phase 6 ──────────────────────────────────────────────────────

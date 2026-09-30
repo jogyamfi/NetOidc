@@ -72,11 +72,20 @@ public sealed class ProviderOptions
     public IList<string> DcrAllowedGrantTypes { get; set; } = ["authorization_code", "refresh_token"];
 
     /// <summary>
-    /// When <c>true</c>, dynamically registered clients may point server-called URLs
-    /// (<c>backchannel_logout_uri</c>) at private, loopback or plain-http addresses.
-    /// Leave <c>false</c> in production: those URLs are otherwise an SSRF vector.
+    /// When <c>true</c>, URLs supplied by clients and called by the server
+    /// (<c>backchannel_logout_uri</c>, <c>jwks_uri</c>, <c>request_uri</c>) may point at private,
+    /// loopback or (for logout) plain-http addresses. Leave <c>false</c> in production: those URLs
+    /// are otherwise an SSRF vector.
     /// </summary>
     public bool DcrAllowPrivateNetworkUris { get; set; } = false;
+
+    /// <summary>
+    /// Whether a dynamically registered confidential client must use PKCE when its registration
+    /// does not say (<c>require_pkce</c>). Defaults to <c>true</c> (RFC 9700 §2.1.1). Public
+    /// clients always need PKCE. Set <c>false</c> for relying parties that predate PKCE, such as
+    /// the OpenID Connect Dynamic certification profile.
+    /// </summary>
+    public bool DcrRequirePkceByDefault { get; set; } = true;
 
     // -- Logout / Session --
 
@@ -232,6 +241,18 @@ public sealed class ProviderOptions
     /// signed request object; unsigned (alg=none) objects are rejected.
     /// </summary>
     public bool JarRequireSignedRequestObject { get; set; } = false;
+
+    /// <summary>
+    /// Accept <c>request_uri</c> by reference (RFC 9101 §5.2, OIDC Core §6.2) in addition to
+    /// pushed requests. Requires <see cref="JarEnabled"/>. The provider fetches only URIs the
+    /// client pre-registered in <c>request_uris</c> (<c>require_request_uri_registration</c>),
+    /// through the SSRF-safe client, and verifies the object like a <c>request</c> parameter.
+    /// Mandatory for the OpenID Connect Dynamic certification profile.
+    /// </summary>
+    public bool RequestUriParameterSupported { get; set; } = false;
+
+    /// <summary>Largest request object fetched from a <c>request_uri</c>, in bytes.</summary>
+    public int RequestUriMaxBytes { get; set; } = 64 * 1024;
 
     // ── JARM — JWT Authorization Response Mode ───────────────────────────────
 

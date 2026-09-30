@@ -17,7 +17,7 @@ namespace NetOidc.Provider.Token;
 /// Authenticates the caller as a client, then returns the status and metadata
 /// of the submitted token.
 /// </summary>
-public sealed class IntrospectionEndpointHandler
+internal sealed class IntrospectionEndpointHandler
 {
     private readonly ClientAuthenticator _clientAuthenticator;
     private readonly AccessTokenService _accessTokens;

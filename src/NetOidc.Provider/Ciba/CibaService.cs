@@ -33,7 +33,7 @@ public interface ICibaService
 }
 
 /// <summary>Default <see cref="ICibaService"/> (OpenID CIBA Core 1.0 §10).</summary>
-public sealed class CibaService : ICibaService
+internal sealed class CibaService : ICibaService
 {
     private const string AuthReqIdClaim = "urn:openid:params:jwt:claim:auth_req_id";
 

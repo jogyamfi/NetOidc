@@ -15,7 +15,7 @@ namespace NetOidc.Provider.UserInfo;
 /// Accepts live Bearer, DPoP-bound (RFC 9449) and certificate-bound (RFC 8705) access tokens
 /// and reports failures with RFC 6750 §3 challenges.
 /// </summary>
-public sealed class UserInfoEndpointHandler
+internal sealed class UserInfoEndpointHandler
 {
     private readonly AccessTokenService _accessTokens;
     private readonly IOptions<ProviderOptions> _options;
@@ -80,7 +80,8 @@ public sealed class UserInfoEndpointHandler
                 context.Request.Method,
                 opts.Issuer.TrimEnd('/') + opts.UserInfoEndpoint,
                 accessToken: token,
-                clockSkewSeconds: opts.DPoPProofLifetimeSeconds);
+                clockSkewSeconds: opts.DPoPProofLifetimeSeconds,
+                allowedAlgorithms: opts.FapiProfile == Configuration.FapiProfile.None ? null : Jose.RequestObjectValidator.FapiSigningAlgorithms);
             if (proof is null || proof.Thumbprint != record.CnfJwkThumbprint)
                 return Challenge(context, "DPoP", "invalid_dpop_proof", "DPoP proof is missing or invalid", 401);
 
@@ -157,7 +158,10 @@ public sealed class UserInfoEndpointHandler
             parts.Add($"error_description=\"{description}\"");
         }
         if (scope is not null) parts.Add($"scope=\"{scope}\"");
-        if (scheme == "DPoP") parts.Add("algs=\"ES256 ES384 ES512 RS256 RS384 RS512 PS256 PS384 PS512\"");
+        if (scheme == "DPoP")
+            parts.Add($"algs=\"{string.Join(' ', _options.Value.FapiProfile == Configuration.FapiProfile.None
+                ? ["ES256", "ES384", "ES512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512"]
+                : Jose.RequestObjectValidator.FapiSigningAlgorithms)}\"");
 
         var challenges = new List<string> { $"{scheme} {string.Join(", ", parts)}" };
         // Advertise the other scheme too when DPoP is enabled and no error is being reported.

@@ -10,7 +10,7 @@ namespace NetOidc.Provider.Federation;
 /// entity identifier is resolved through its trust chain; the client is cached until the chain
 /// expires.
 /// </summary>
-public sealed class FederationClientResolver : IClientResolver
+internal sealed class FederationClientResolver : IClientResolver
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly TrustChainResolver _chains;

@@ -385,6 +385,23 @@ the text above, and follow-ups:
 - [ ] **P6.5 Packaging** — replace placeholder `RepositoryUrl`/`PackageProjectUrl` in
   [Directory.Build.props](../Directory.Build.props); Source Link; public API analyzers.
 
+### Phase 6 — status (branch `release/1.0`, IN PROGRESS — paused 2026-09-30)
+
+| Item | State |
+|------|-------|
+| P6.1 | Done: `ConcurrencyTests` (50 racers per single-use artifact), `EndpointNegativeTests` (auth, forged tokens, malformed input, duplicate params, methods, response hygiene), traceability to every P1–P5 item. |
+| P6.2 | Harness done (`test/NetOidc.Conformance`, `run-conformance.sh`). Local results: OIDC Basic, Implicit, Hybrid, Form Post, Config — no failures; Dynamic — only `oidcc-server-rotate-keys` (expected, self-attested); FAPI 2 SP — DPoP 57/57, pkjwt+mTLS 48/48, mTLS 36/37 (1 transient network error, rerun). **Still to finish:** RP-initiated / front / back-channel logout plans (`no-id-token-hint`, `only-state` time out — check browser flow), FAPI 2 Message Signing (early errors now JARM-wrapped — rerun), FAPI 1 Advanced (rerun after PKCE harness fix), FAPI-CIBA (first run aborted — investigate). Then write `docs/CONFORMANCE.md`. |
+| P6.3 | Internal review done ([SECURITY_REVIEW.md](SECURITY_REVIEW.md)); independent review still required. |
+| P6.4 | Done: ADAPTERS, KEY_MANAGEMENT, PRODUCTION_CHECKLIST, SECURITY_REVIEW, CHANGELOG, README. Update README/CHANGELOG with final conformance numbers. |
+| P6.5 | Done: repo URLs, Source Link + snupkg, PublicApiAnalyzers (`PublicAPI.Unshipped.txt`), public surface trimmed, CI workflow. |
+
+**Resume here:** the last change (errors routed through `SendError` → `BuildRedirect` with `iss` and JARM)
+leaves one failing unit test, `Phase7Tests.Fapi1_Authorization_Rejects_OpenId_WhenNonceMissing`
+(expects `error=invalid_request` in the query; the error is now JARM-wrapped or placed differently —
+inspect and fix). Then `dotnet test`, rebuild the conformance host and rerun the pending plans:
+`SUITE_DIR=<suite checkout> KEEP_SUITE=1 ./run-conformance.sh fapi2-ms|fapi1|fapi-ciba|oidcc`
+(use distinct `OP_URL` ports / `ALIAS` / `CONFIGURATION` to run profiles concurrently).
+
 ---
 
 ## Suggested order and branches

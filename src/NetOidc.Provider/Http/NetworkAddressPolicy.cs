@@ -38,8 +38,20 @@ internal static class NetworkAddressPolicy
         if (address.AddressFamily == AddressFamily.InterNetworkV6)
         {
             var b = address.GetAddressBytes();
-            return !(address.IsIPv6LinkLocal || address.IsIPv6SiteLocal ||
-                     address.IsIPv6Multicast || (b[0] & 0xFE) == 0xFC);  // fc00::/7 unique-local
+            if (address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6Multicast ||
+                (b[0] & 0xFE) == 0xFC ||                                         // fc00::/7 unique-local
+                b.AsSpan(0, 12).IndexOfAnyExcept((byte)0) < 0 ||                 // ::/96 IPv4-compatible
+                (b[0] == 0x01 && b.AsSpan(1, 7).IndexOfAnyExcept((byte)0) < 0) || // 100::/64 discard
+                (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0D && b[3] == 0xB8) || // 2001:db8::/32 documentation
+                (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0 && b[3] == 0))         // 2001::/32 Teredo
+                return false;
+
+            // Translation prefixes embed an IPv4 address that the network may route to.
+            if (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xFF && b[3] == 0x9B)    // 64:ff9b::/96 NAT64
+                return IsPublic(new IPAddress(b.AsSpan(12, 4)));
+            if (b[0] == 0x20 && b[1] == 0x02)                                    // 2002::/16 6to4
+                return IsPublic(new IPAddress(b.AsSpan(2, 4)));
+            return true;
         }
 
         return false;

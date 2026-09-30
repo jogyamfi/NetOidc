@@ -1,0 +1,554 @@
+#nullable enable
+NetOidc.Provider.Abstractions.Adapters.IAdapter<T>
+NetOidc.Provider.Abstractions.Adapters.IAdapter<T>.ConsumeAsync(string! id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<T?>!
+NetOidc.Provider.Abstractions.Adapters.IAdapter<T>.FindAsync(string! id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<T?>!
+NetOidc.Provider.Abstractions.Adapters.IAdapter<T>.RemoveAsync(string! id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Adapters.IAdapter<T>.StoreAsync(string! id, T! entity, System.TimeSpan? expiresIn = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Adapters.IClientStore
+NetOidc.Provider.Abstractions.Adapters.IClientStore.FindClientAsync(string! clientId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NetOidc.Provider.Abstractions.Models.Client?>!
+NetOidc.Provider.Abstractions.Adapters.IDynamicClientStore
+NetOidc.Provider.Abstractions.Adapters.IDynamicClientStore.RemoveClientAsync(string! clientId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Adapters.IDynamicClientStore.StoreClientAsync(NetOidc.Provider.Abstractions.Models.Client! client, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Adapters.IReplayCache
+NetOidc.Provider.Abstractions.Adapters.IReplayCache.TryAddAsync(string! key, System.DateTimeOffset expiresAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent.Approved.get -> bool
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent.Approved.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent.AuthorizationDecisionEvent(string! ClientId, string? Subject, string! Flow, bool Approved, System.DateTimeOffset OccurredAt) -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent.ClientId.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent.Flow.get -> string!
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent.Flow.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent.OccurredAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent.OccurredAt.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent.Subject.get -> string?
+NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent.Subject.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationFailedEvent
+NetOidc.Provider.Abstractions.Events.AuthorizationFailedEvent.AuthorizationFailedEvent(string? ClientId, string! Error, string? Description, System.DateTimeOffset OccurredAt) -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationFailedEvent.ClientId.get -> string?
+NetOidc.Provider.Abstractions.Events.AuthorizationFailedEvent.ClientId.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationFailedEvent.Description.get -> string?
+NetOidc.Provider.Abstractions.Events.AuthorizationFailedEvent.Description.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationFailedEvent.Error.get -> string!
+NetOidc.Provider.Abstractions.Events.AuthorizationFailedEvent.Error.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationFailedEvent.OccurredAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Events.AuthorizationFailedEvent.OccurredAt.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent.AuthorizationSucceededEvent(string! ClientId, string! Subject, string! ResponseType, System.Collections.Generic.IReadOnlyList<string!>! GrantedScopes, System.DateTimeOffset IssuedAt) -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent.ClientId.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent.GrantedScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent.GrantedScopes.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent.IssuedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent.IssuedAt.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent.ResponseType.get -> string!
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent.ResponseType.init -> void
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent.Subject.get -> string!
+NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent.Subject.init -> void
+NetOidc.Provider.Abstractions.Events.ClientAuthenticationFailedEvent
+NetOidc.Provider.Abstractions.Events.ClientAuthenticationFailedEvent.ClientAuthenticationFailedEvent(string? ClientId, string! Endpoint, string! Reason, System.DateTimeOffset OccurredAt) -> void
+NetOidc.Provider.Abstractions.Events.ClientAuthenticationFailedEvent.ClientId.get -> string?
+NetOidc.Provider.Abstractions.Events.ClientAuthenticationFailedEvent.ClientId.init -> void
+NetOidc.Provider.Abstractions.Events.ClientAuthenticationFailedEvent.Endpoint.get -> string!
+NetOidc.Provider.Abstractions.Events.ClientAuthenticationFailedEvent.Endpoint.init -> void
+NetOidc.Provider.Abstractions.Events.ClientAuthenticationFailedEvent.OccurredAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Events.ClientAuthenticationFailedEvent.OccurredAt.init -> void
+NetOidc.Provider.Abstractions.Events.ClientAuthenticationFailedEvent.Reason.get -> string!
+NetOidc.Provider.Abstractions.Events.ClientAuthenticationFailedEvent.Reason.init -> void
+NetOidc.Provider.Abstractions.Events.ClientRegistrationChangedEvent
+NetOidc.Provider.Abstractions.Events.ClientRegistrationChangedEvent.Change.get -> string!
+NetOidc.Provider.Abstractions.Events.ClientRegistrationChangedEvent.Change.init -> void
+NetOidc.Provider.Abstractions.Events.ClientRegistrationChangedEvent.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Events.ClientRegistrationChangedEvent.ClientId.init -> void
+NetOidc.Provider.Abstractions.Events.ClientRegistrationChangedEvent.ClientRegistrationChangedEvent(string! ClientId, string! Change, System.DateTimeOffset OccurredAt) -> void
+NetOidc.Provider.Abstractions.Events.ClientRegistrationChangedEvent.OccurredAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Events.ClientRegistrationChangedEvent.OccurredAt.init -> void
+NetOidc.Provider.Abstractions.Events.IProviderEventSink
+NetOidc.Provider.Abstractions.Events.IProviderEventSink.AuthorizationDecisionAsync(NetOidc.Provider.Abstractions.Events.AuthorizationDecisionEvent! e, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Events.IProviderEventSink.AuthorizationFailedAsync(NetOidc.Provider.Abstractions.Events.AuthorizationFailedEvent! e, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Events.IProviderEventSink.AuthorizationSucceededAsync(NetOidc.Provider.Abstractions.Events.AuthorizationSucceededEvent! e, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Events.IProviderEventSink.ClientAuthenticationFailedAsync(NetOidc.Provider.Abstractions.Events.ClientAuthenticationFailedEvent! e, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Events.IProviderEventSink.ClientRegistrationChangedAsync(NetOidc.Provider.Abstractions.Events.ClientRegistrationChangedEvent! e, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Events.IProviderEventSink.LoggedOutAsync(NetOidc.Provider.Abstractions.Events.LoggedOutEvent! e, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Events.IProviderEventSink.TokenIntrospectedAsync(NetOidc.Provider.Abstractions.Events.TokenIntrospectedEvent! e, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Events.IProviderEventSink.TokenIssuedAsync(NetOidc.Provider.Abstractions.Events.TokenIssuedEvent! e, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Events.IProviderEventSink.TokenRequestFailedAsync(NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent! e, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Events.IProviderEventSink.TokenRevokedAsync(NetOidc.Provider.Abstractions.Events.TokenRevokedEvent! e, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Events.IProviderEventSink.UserInfoRequestedAsync(NetOidc.Provider.Abstractions.Events.UserInfoRequestedEvent! e, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Abstractions.Events.LoggedOutEvent
+NetOidc.Provider.Abstractions.Events.LoggedOutEvent.ClientIds.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Events.LoggedOutEvent.ClientIds.init -> void
+NetOidc.Provider.Abstractions.Events.LoggedOutEvent.LoggedOutEvent(string? Subject, string? SessionId, System.Collections.Generic.IReadOnlyList<string!>! ClientIds, System.DateTimeOffset OccurredAt) -> void
+NetOidc.Provider.Abstractions.Events.LoggedOutEvent.OccurredAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Events.LoggedOutEvent.OccurredAt.init -> void
+NetOidc.Provider.Abstractions.Events.LoggedOutEvent.SessionId.get -> string?
+NetOidc.Provider.Abstractions.Events.LoggedOutEvent.SessionId.init -> void
+NetOidc.Provider.Abstractions.Events.LoggedOutEvent.Subject.get -> string?
+NetOidc.Provider.Abstractions.Events.LoggedOutEvent.Subject.init -> void
+NetOidc.Provider.Abstractions.Events.TokenIntrospectedEvent
+NetOidc.Provider.Abstractions.Events.TokenIntrospectedEvent.Active.get -> bool
+NetOidc.Provider.Abstractions.Events.TokenIntrospectedEvent.Active.init -> void
+NetOidc.Provider.Abstractions.Events.TokenIntrospectedEvent.CallerClientId.get -> string!
+NetOidc.Provider.Abstractions.Events.TokenIntrospectedEvent.CallerClientId.init -> void
+NetOidc.Provider.Abstractions.Events.TokenIntrospectedEvent.IntrospectedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Events.TokenIntrospectedEvent.IntrospectedAt.init -> void
+NetOidc.Provider.Abstractions.Events.TokenIntrospectedEvent.TokenIntrospectedEvent(string! CallerClientId, bool Active, string? TokenSubject, System.DateTimeOffset IntrospectedAt) -> void
+NetOidc.Provider.Abstractions.Events.TokenIntrospectedEvent.TokenSubject.get -> string?
+NetOidc.Provider.Abstractions.Events.TokenIntrospectedEvent.TokenSubject.init -> void
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent.ClientId.init -> void
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent.GrantType.get -> string!
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent.GrantType.init -> void
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent.IssuedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent.IssuedAt.init -> void
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent.Scopes.init -> void
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent.Subject.get -> string?
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent.Subject.init -> void
+NetOidc.Provider.Abstractions.Events.TokenIssuedEvent.TokenIssuedEvent(string! ClientId, string? Subject, string! GrantType, System.Collections.Generic.IReadOnlyList<string!>! Scopes, System.DateTimeOffset IssuedAt) -> void
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent.ClientId.get -> string?
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent.ClientId.init -> void
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent.Description.get -> string?
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent.Description.init -> void
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent.Error.get -> string!
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent.Error.init -> void
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent.GrantType.get -> string!
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent.GrantType.init -> void
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent.OccurredAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent.OccurredAt.init -> void
+NetOidc.Provider.Abstractions.Events.TokenRequestFailedEvent.TokenRequestFailedEvent(string? ClientId, string! GrantType, string! Error, string? Description, System.DateTimeOffset OccurredAt) -> void
+NetOidc.Provider.Abstractions.Events.TokenRevokedEvent
+NetOidc.Provider.Abstractions.Events.TokenRevokedEvent.CallerClientId.get -> string!
+NetOidc.Provider.Abstractions.Events.TokenRevokedEvent.CallerClientId.init -> void
+NetOidc.Provider.Abstractions.Events.TokenRevokedEvent.RevokedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Events.TokenRevokedEvent.RevokedAt.init -> void
+NetOidc.Provider.Abstractions.Events.TokenRevokedEvent.TokenRevokedEvent(string! CallerClientId, string? TokenSubject, System.DateTimeOffset RevokedAt) -> void
+NetOidc.Provider.Abstractions.Events.TokenRevokedEvent.TokenSubject.get -> string?
+NetOidc.Provider.Abstractions.Events.TokenRevokedEvent.TokenSubject.init -> void
+NetOidc.Provider.Abstractions.Events.UserInfoRequestedEvent
+NetOidc.Provider.Abstractions.Events.UserInfoRequestedEvent.RequestedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Events.UserInfoRequestedEvent.RequestedAt.init -> void
+NetOidc.Provider.Abstractions.Events.UserInfoRequestedEvent.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Events.UserInfoRequestedEvent.Scopes.init -> void
+NetOidc.Provider.Abstractions.Events.UserInfoRequestedEvent.Subject.get -> string!
+NetOidc.Provider.Abstractions.Events.UserInfoRequestedEvent.Subject.init -> void
+NetOidc.Provider.Abstractions.Events.UserInfoRequestedEvent.UserInfoRequestedEvent(string! Subject, System.Collections.Generic.IReadOnlyList<string!>! Scopes, System.DateTimeOffset RequestedAt) -> void
+NetOidc.Provider.Abstractions.Models.AccessToken
+NetOidc.Provider.Abstractions.Models.AccessToken.AccessToken() -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.AuthorizationDetailsJson.get -> string?
+NetOidc.Provider.Abstractions.Models.AccessToken.AuthorizationDetailsJson.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.ClaimsRequest.get -> string?
+NetOidc.Provider.Abstractions.Models.AccessToken.ClaimsRequest.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.AccessToken.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.CnfJwkThumbprint.get -> string?
+NetOidc.Provider.Abstractions.Models.AccessToken.CnfJwkThumbprint.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.CnfX5tS256.get -> string?
+NetOidc.Provider.Abstractions.Models.AccessToken.CnfX5tS256.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.ExpiresAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.AccessToken.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.Format.get -> NetOidc.Provider.Abstractions.Models.TokenFormat
+NetOidc.Provider.Abstractions.Models.AccessToken.Format.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.GrantId.get -> string!
+NetOidc.Provider.Abstractions.Models.AccessToken.GrantId.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.IssuedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.AccessToken.IssuedAt.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.Resources.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.AccessToken.Resources.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.AccessToken.Scopes.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.Subject.get -> string?
+NetOidc.Provider.Abstractions.Models.AccessToken.Subject.init -> void
+NetOidc.Provider.Abstractions.Models.AccessToken.TokenId.get -> string!
+NetOidc.Provider.Abstractions.Models.AccessToken.TokenId.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Acr.get -> string?
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Acr.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Amr.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Amr.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.AuthTime.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.AuthTime.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.AuthorizationCode() -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.AuthorizationDetailsJson.get -> string?
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.AuthorizationDetailsJson.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.ClaimsRequest.get -> string?
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.ClaimsRequest.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Code.get -> string!
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Code.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.CodeChallenge.get -> string?
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.CodeChallenge.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.CodeChallengeMethod.get -> string?
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.CodeChallengeMethod.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.ConsumedAt.get -> System.DateTimeOffset?
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.ConsumedAt.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.DPoPJkt.get -> string?
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.DPoPJkt.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.ExpiresAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.GrantId.get -> string?
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.GrantId.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Nonce.get -> string?
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Nonce.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.RedirectUri.get -> string!
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.RedirectUri.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.RedirectUriInRequest.get -> bool
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.RedirectUriInRequest.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Resources.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Resources.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Scopes.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.SessionId.get -> string?
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.SessionId.init -> void
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Subject.get -> string!
+NetOidc.Provider.Abstractions.Models.AuthorizationCode.Subject.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.Acr.get -> string?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.Acr.set -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.AcrValues.get -> string?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.AcrValues.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.AuthReqId.get -> string!
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.AuthReqId.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.AuthTime.get -> System.DateTimeOffset?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.AuthTime.set -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.BackchannelAuthenticationRequest() -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.BindingMessage.get -> string?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.BindingMessage.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.ClientNotificationToken.get -> string?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.ClientNotificationToken.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.CreatedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.CreatedAt.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.DeliveryMode.get -> string!
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.DeliveryMode.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.ExpiresAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.GrantedScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.GrantedScopes.set -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.HintSubject.get -> string?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.HintSubject.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.IdTokenHint.get -> string?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.IdTokenHint.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.LastPolledAt.get -> System.DateTimeOffset?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.LastPolledAt.set -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.LoginHint.get -> string?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.LoginHint.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.LoginHintToken.get -> string?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.LoginHintToken.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.RequestedScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.RequestedScopes.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.Status.get -> NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationStatus
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.Status.set -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.Subject.get -> string?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.Subject.set -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.UserCode.get -> string?
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest.UserCode.init -> void
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationStatus
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationStatus.Approved = 1 -> NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationStatus
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationStatus.Denied = 2 -> NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationStatus
+NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationStatus.Pending = 0 -> NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationStatus
+NetOidc.Provider.Abstractions.Models.Client
+NetOidc.Provider.Abstractions.Models.Client.AccessTokenFormat.get -> NetOidc.Provider.Abstractions.Models.TokenFormat?
+NetOidc.Provider.Abstractions.Models.Client.AccessTokenFormat.init -> void
+NetOidc.Provider.Abstractions.Models.Client.AllowedGrantTypes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Client.AllowedGrantTypes.init -> void
+NetOidc.Provider.Abstractions.Models.Client.AllowedResources.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Client.AllowedResources.init -> void
+NetOidc.Provider.Abstractions.Models.Client.AllowedScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Client.AllowedScopes.init -> void
+NetOidc.Provider.Abstractions.Models.Client.AuthorizationSignedResponseAlg.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.AuthorizationSignedResponseAlg.init -> void
+NetOidc.Provider.Abstractions.Models.Client.BackChannelLogoutSessionRequired.get -> bool
+NetOidc.Provider.Abstractions.Models.Client.BackChannelLogoutSessionRequired.init -> void
+NetOidc.Provider.Abstractions.Models.Client.BackChannelLogoutUri.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.BackChannelLogoutUri.init -> void
+NetOidc.Provider.Abstractions.Models.Client.BackchannelUserCodeParameter.get -> bool
+NetOidc.Provider.Abstractions.Models.Client.BackchannelUserCodeParameter.init -> void
+NetOidc.Provider.Abstractions.Models.Client.CibaClientNotificationEndpoint.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.CibaClientNotificationEndpoint.init -> void
+NetOidc.Provider.Abstractions.Models.Client.CibaDeliveryMode.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.CibaDeliveryMode.init -> void
+NetOidc.Provider.Abstractions.Models.Client.CibaJwksJson.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.CibaJwksJson.init -> void
+NetOidc.Provider.Abstractions.Models.Client.Client() -> void
+NetOidc.Provider.Abstractions.Models.Client.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.Client.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.Client.ClientIdIssuedAt.get -> long
+NetOidc.Provider.Abstractions.Models.Client.ClientIdIssuedAt.init -> void
+NetOidc.Provider.Abstractions.Models.Client.ClientName.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.ClientName.init -> void
+NetOidc.Provider.Abstractions.Models.Client.ClientSecret.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.ClientSecret.init -> void
+NetOidc.Provider.Abstractions.Models.Client.ClientSecretExpiresAt.get -> long
+NetOidc.Provider.Abstractions.Models.Client.ClientSecretExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.Client.ClientUri.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.ClientUri.init -> void
+NetOidc.Provider.Abstractions.Models.Client.Contacts.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Client.Contacts.init -> void
+NetOidc.Provider.Abstractions.Models.Client.FrontChannelLogoutSessionRequired.get -> bool
+NetOidc.Provider.Abstractions.Models.Client.FrontChannelLogoutSessionRequired.init -> void
+NetOidc.Provider.Abstractions.Models.Client.FrontChannelLogoutUri.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.FrontChannelLogoutUri.init -> void
+NetOidc.Provider.Abstractions.Models.Client.IdTokenEncryptedResponseAlg.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.IdTokenEncryptedResponseAlg.init -> void
+NetOidc.Provider.Abstractions.Models.Client.IdTokenEncryptedResponseEnc.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.IdTokenEncryptedResponseEnc.init -> void
+NetOidc.Provider.Abstractions.Models.Client.IdTokenSignedResponseAlg.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.IdTokenSignedResponseAlg.init -> void
+NetOidc.Provider.Abstractions.Models.Client.IsDynamic.get -> bool
+NetOidc.Provider.Abstractions.Models.Client.IsDynamic.init -> void
+NetOidc.Provider.Abstractions.Models.Client.JwksJson.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.JwksJson.init -> void
+NetOidc.Provider.Abstractions.Models.Client.JwksUri.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.JwksUri.init -> void
+NetOidc.Provider.Abstractions.Models.Client.LogoUri.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.LogoUri.init -> void
+NetOidc.Provider.Abstractions.Models.Client.PolicyUri.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.PolicyUri.init -> void
+NetOidc.Provider.Abstractions.Models.Client.PostLogoutRedirectUris.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Client.PostLogoutRedirectUris.init -> void
+NetOidc.Provider.Abstractions.Models.Client.RedirectUris.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Client.RedirectUris.init -> void
+NetOidc.Provider.Abstractions.Models.Client.RegistrationAccessTokenHash.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.RegistrationAccessTokenHash.init -> void
+NetOidc.Provider.Abstractions.Models.Client.RequestObjectEncryptionAlg.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.RequestObjectEncryptionAlg.init -> void
+NetOidc.Provider.Abstractions.Models.Client.RequestObjectEncryptionEnc.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.RequestObjectEncryptionEnc.init -> void
+NetOidc.Provider.Abstractions.Models.Client.RequestObjectSigningAlg.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.RequestObjectSigningAlg.init -> void
+NetOidc.Provider.Abstractions.Models.Client.RequestUris.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Client.RequestUris.init -> void
+NetOidc.Provider.Abstractions.Models.Client.RequireConsent.get -> bool
+NetOidc.Provider.Abstractions.Models.Client.RequireConsent.init -> void
+NetOidc.Provider.Abstractions.Models.Client.RequirePkce.get -> bool
+NetOidc.Provider.Abstractions.Models.Client.RequirePkce.init -> void
+NetOidc.Provider.Abstractions.Models.Client.RequireSignedRequestObject.get -> bool
+NetOidc.Provider.Abstractions.Models.Client.RequireSignedRequestObject.init -> void
+NetOidc.Provider.Abstractions.Models.Client.ResponseTypes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Client.ResponseTypes.init -> void
+NetOidc.Provider.Abstractions.Models.Client.SectorIdentifierUri.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.SectorIdentifierUri.init -> void
+NetOidc.Provider.Abstractions.Models.Client.TlsClientAuthSanDns.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.TlsClientAuthSanDns.init -> void
+NetOidc.Provider.Abstractions.Models.Client.TlsClientAuthSanIp.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.TlsClientAuthSanIp.init -> void
+NetOidc.Provider.Abstractions.Models.Client.TlsClientAuthSanUri.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.TlsClientAuthSanUri.init -> void
+NetOidc.Provider.Abstractions.Models.Client.TlsClientAuthSubjectDn.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.TlsClientAuthSubjectDn.init -> void
+NetOidc.Provider.Abstractions.Models.Client.TokenEndpointAuthMethod.get -> string!
+NetOidc.Provider.Abstractions.Models.Client.TokenEndpointAuthMethod.init -> void
+NetOidc.Provider.Abstractions.Models.Client.TosUri.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.TosUri.init -> void
+NetOidc.Provider.Abstractions.Models.Client.UseMtlsBoundTokens.get -> bool
+NetOidc.Provider.Abstractions.Models.Client.UseMtlsBoundTokens.init -> void
+NetOidc.Provider.Abstractions.Models.Client.UserInfoEncryptedResponseAlg.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.UserInfoEncryptedResponseAlg.init -> void
+NetOidc.Provider.Abstractions.Models.Client.UserInfoEncryptedResponseEnc.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.UserInfoEncryptedResponseEnc.init -> void
+NetOidc.Provider.Abstractions.Models.Client.UserInfoSignedResponseAlg.get -> string?
+NetOidc.Provider.Abstractions.Models.Client.UserInfoSignedResponseAlg.init -> void
+NetOidc.Provider.Abstractions.Models.Consent
+NetOidc.Provider.Abstractions.Models.Consent.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.Consent.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.Consent.Consent() -> void
+NetOidc.Provider.Abstractions.Models.Consent.ExpiresAt.get -> System.DateTimeOffset?
+NetOidc.Provider.Abstractions.Models.Consent.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.Consent.GrantedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.Consent.GrantedAt.init -> void
+NetOidc.Provider.Abstractions.Models.Consent.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Consent.Scopes.init -> void
+NetOidc.Provider.Abstractions.Models.Consent.Subject.get -> string!
+NetOidc.Provider.Abstractions.Models.Consent.Subject.init -> void
+NetOidc.Provider.Abstractions.Models.CredentialNonce
+NetOidc.Provider.Abstractions.Models.CredentialNonce.CredentialNonce() -> void
+NetOidc.Provider.Abstractions.Models.CredentialNonce.ExpiresAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.CredentialNonce.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.CredentialNonce.Nonce.get -> string!
+NetOidc.Provider.Abstractions.Models.CredentialNonce.Nonce.init -> void
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord.CredentialConfigurationId.get -> string!
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord.CredentialConfigurationId.init -> void
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord.CredentialNotificationRecord() -> void
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord.ExpiresAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord.NotificationId.get -> string!
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord.NotificationId.init -> void
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord.Subject.get -> string!
+NetOidc.Provider.Abstractions.Models.CredentialNotificationRecord.Subject.init -> void
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.CredentialConfigurationId.get -> string!
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.CredentialConfigurationId.init -> void
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.DeferredCredentialTransaction() -> void
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.ExpiresAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.HolderPublicJwks.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.HolderPublicJwks.init -> void
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.Scopes.init -> void
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.Subject.get -> string!
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.Subject.init -> void
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.TransactionId.get -> string!
+NetOidc.Provider.Abstractions.Models.DeferredCredentialTransaction.TransactionId.init -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode
+NetOidc.Provider.Abstractions.Models.DeviceCode.AuthTime.get -> System.DateTimeOffset?
+NetOidc.Provider.Abstractions.Models.DeviceCode.AuthTime.set -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.DeviceCode.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.CreatedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.DeviceCode.CreatedAt.init -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.DeviceCode() -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.DeviceCodeValue.get -> string!
+NetOidc.Provider.Abstractions.Models.DeviceCode.DeviceCodeValue.init -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.ExpiresAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.DeviceCode.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.GrantedScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.DeviceCode.GrantedScopes.set -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.IntervalSeconds.get -> int
+NetOidc.Provider.Abstractions.Models.DeviceCode.IntervalSeconds.set -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.LastPolledAt.get -> System.DateTimeOffset?
+NetOidc.Provider.Abstractions.Models.DeviceCode.LastPolledAt.set -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.RequestedScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.DeviceCode.RequestedScopes.init -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.Status.get -> NetOidc.Provider.Abstractions.Models.DeviceCodeStatus
+NetOidc.Provider.Abstractions.Models.DeviceCode.Status.set -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.Subject.get -> string?
+NetOidc.Provider.Abstractions.Models.DeviceCode.Subject.set -> void
+NetOidc.Provider.Abstractions.Models.DeviceCode.UserCode.get -> string!
+NetOidc.Provider.Abstractions.Models.DeviceCode.UserCode.init -> void
+NetOidc.Provider.Abstractions.Models.DeviceCodeStatus
+NetOidc.Provider.Abstractions.Models.DeviceCodeStatus.Approved = 1 -> NetOidc.Provider.Abstractions.Models.DeviceCodeStatus
+NetOidc.Provider.Abstractions.Models.DeviceCodeStatus.Denied = 2 -> NetOidc.Provider.Abstractions.Models.DeviceCodeStatus
+NetOidc.Provider.Abstractions.Models.DeviceCodeStatus.Pending = 0 -> NetOidc.Provider.Abstractions.Models.DeviceCodeStatus
+NetOidc.Provider.Abstractions.Models.Grant
+NetOidc.Provider.Abstractions.Models.Grant.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.Grant.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.Grant.CreatedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.Grant.CreatedAt.init -> void
+NetOidc.Provider.Abstractions.Models.Grant.ExpiresAt.get -> System.DateTimeOffset?
+NetOidc.Provider.Abstractions.Models.Grant.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.Grant.Grant() -> void
+NetOidc.Provider.Abstractions.Models.Grant.GrantId.get -> string!
+NetOidc.Provider.Abstractions.Models.Grant.GrantId.init -> void
+NetOidc.Provider.Abstractions.Models.Grant.GrantedScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Grant.GrantedScopes.init -> void
+NetOidc.Provider.Abstractions.Models.Grant.Subject.get -> string!
+NetOidc.Provider.Abstractions.Models.Grant.Subject.init -> void
+NetOidc.Provider.Abstractions.Models.InteractionKind
+NetOidc.Provider.Abstractions.Models.InteractionKind.Consent = 1 -> NetOidc.Provider.Abstractions.Models.InteractionKind
+NetOidc.Provider.Abstractions.Models.InteractionKind.Login = 0 -> NetOidc.Provider.Abstractions.Models.InteractionKind
+NetOidc.Provider.Abstractions.Models.PendingInteraction
+NetOidc.Provider.Abstractions.Models.PendingInteraction.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.PendingInteraction.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.PendingInteraction.CreatedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.PendingInteraction.CreatedAt.init -> void
+NetOidc.Provider.Abstractions.Models.PendingInteraction.DenialDescription.get -> string?
+NetOidc.Provider.Abstractions.Models.PendingInteraction.DenialDescription.init -> void
+NetOidc.Provider.Abstractions.Models.PendingInteraction.DenialError.get -> string?
+NetOidc.Provider.Abstractions.Models.PendingInteraction.DenialError.init -> void
+NetOidc.Provider.Abstractions.Models.PendingInteraction.InteractionId.get -> string!
+NetOidc.Provider.Abstractions.Models.PendingInteraction.InteractionId.init -> void
+NetOidc.Provider.Abstractions.Models.PendingInteraction.Kind.get -> NetOidc.Provider.Abstractions.Models.InteractionKind
+NetOidc.Provider.Abstractions.Models.PendingInteraction.Kind.init -> void
+NetOidc.Provider.Abstractions.Models.PendingInteraction.PendingInteraction() -> void
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.Code.get -> string!
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.Code.init -> void
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.CredentialConfigurationIds.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.CredentialConfigurationIds.init -> void
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.ExpiresAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.FailedTxCodeAttempts.get -> int
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.FailedTxCodeAttempts.set -> void
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.PreAuthorizedCode() -> void
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.Subject.get -> string!
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.Subject.init -> void
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.TxCodeHash.get -> string?
+NetOidc.Provider.Abstractions.Models.PreAuthorizedCode.TxCodeHash.init -> void
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest.ExpiresAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest.FromRequestObject.get -> bool
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest.FromRequestObject.init -> void
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest.ParametersJson.get -> string!
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest.ParametersJson.init -> void
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest.PushedAuthorizationRequest() -> void
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest.RequestUri.get -> string!
+NetOidc.Provider.Abstractions.Models.PushedAuthorizationRequest.RequestUri.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken
+NetOidc.Provider.Abstractions.Models.RefreshToken.Acr.get -> string?
+NetOidc.Provider.Abstractions.Models.RefreshToken.Acr.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.Amr.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Abstractions.Models.RefreshToken.Amr.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.AuthTime.get -> System.DateTimeOffset?
+NetOidc.Provider.Abstractions.Models.RefreshToken.AuthTime.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.AuthorizationDetailsJson.get -> string?
+NetOidc.Provider.Abstractions.Models.RefreshToken.AuthorizationDetailsJson.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.ClaimsRequest.get -> string?
+NetOidc.Provider.Abstractions.Models.RefreshToken.ClaimsRequest.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.ClientId.get -> string!
+NetOidc.Provider.Abstractions.Models.RefreshToken.ClientId.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.CnfJwkThumbprint.get -> string?
+NetOidc.Provider.Abstractions.Models.RefreshToken.CnfJwkThumbprint.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.CnfX5tS256.get -> string?
+NetOidc.Provider.Abstractions.Models.RefreshToken.CnfX5tS256.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.ConsumedAt.get -> System.DateTimeOffset?
+NetOidc.Provider.Abstractions.Models.RefreshToken.ConsumedAt.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.ExpiresAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.RefreshToken.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.GrantId.get -> string?
+NetOidc.Provider.Abstractions.Models.RefreshToken.GrantId.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.RefreshToken() -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.Resources.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.RefreshToken.Resources.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.RefreshToken.Scopes.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.SessionId.get -> string?
+NetOidc.Provider.Abstractions.Models.RefreshToken.SessionId.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.Subject.get -> string!
+NetOidc.Provider.Abstractions.Models.RefreshToken.Subject.init -> void
+NetOidc.Provider.Abstractions.Models.RefreshToken.TokenId.get -> string!
+NetOidc.Provider.Abstractions.Models.RefreshToken.TokenId.init -> void
+NetOidc.Provider.Abstractions.Models.Scope
+NetOidc.Provider.Abstractions.Models.Scope.Claims.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Scope.Claims.init -> void
+NetOidc.Provider.Abstractions.Models.Scope.Description.get -> string?
+NetOidc.Provider.Abstractions.Models.Scope.Description.init -> void
+NetOidc.Provider.Abstractions.Models.Scope.Name.get -> string!
+NetOidc.Provider.Abstractions.Models.Scope.Name.init -> void
+NetOidc.Provider.Abstractions.Models.Scope.Scope() -> void
+NetOidc.Provider.Abstractions.Models.Session
+NetOidc.Provider.Abstractions.Models.Session.ClientIds.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Abstractions.Models.Session.ClientIds.init -> void
+NetOidc.Provider.Abstractions.Models.Session.CreatedAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.Session.CreatedAt.init -> void
+NetOidc.Provider.Abstractions.Models.Session.ExpiresAt.get -> System.DateTimeOffset?
+NetOidc.Provider.Abstractions.Models.Session.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.Session.Session() -> void
+NetOidc.Provider.Abstractions.Models.Session.SessionId.get -> string!
+NetOidc.Provider.Abstractions.Models.Session.SessionId.init -> void
+NetOidc.Provider.Abstractions.Models.Session.Subject.get -> string!
+NetOidc.Provider.Abstractions.Models.Session.Subject.init -> void
+NetOidc.Provider.Abstractions.Models.StoredCredentialOffer
+NetOidc.Provider.Abstractions.Models.StoredCredentialOffer.ExpiresAt.get -> System.DateTimeOffset
+NetOidc.Provider.Abstractions.Models.StoredCredentialOffer.ExpiresAt.init -> void
+NetOidc.Provider.Abstractions.Models.StoredCredentialOffer.OfferId.get -> string!
+NetOidc.Provider.Abstractions.Models.StoredCredentialOffer.OfferId.init -> void
+NetOidc.Provider.Abstractions.Models.StoredCredentialOffer.OfferJson.get -> string!
+NetOidc.Provider.Abstractions.Models.StoredCredentialOffer.OfferJson.init -> void
+NetOidc.Provider.Abstractions.Models.StoredCredentialOffer.StoredCredentialOffer() -> void
+NetOidc.Provider.Abstractions.Models.TokenFormat
+NetOidc.Provider.Abstractions.Models.TokenFormat.Jwt = 0 -> NetOidc.Provider.Abstractions.Models.TokenFormat
+NetOidc.Provider.Abstractions.Models.TokenFormat.Opaque = 1 -> NetOidc.Provider.Abstractions.Models.TokenFormat
+static NetOidc.Provider.Abstractions.Models.Consent.KeyFor(string! clientId, string! subject) -> string!

@@ -21,7 +21,7 @@ namespace NetOidc.Provider.Dcr;
 ///   <item><c>DELETE /connect/register/{clientId}</c> — delete a dynamic client</item>
 /// </list>
 /// </summary>
-public sealed class DynamicRegistrationEndpointHandler
+internal sealed class DynamicRegistrationEndpointHandler
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly IDynamicClientStore _clientStore;
@@ -212,15 +212,24 @@ public sealed class DynamicRegistrationEndpointHandler
             jwks = inline.ValueKind == System.Text.Json.JsonValueKind.Object ? inline.GetRawText() : null;
         else if (req.JwksUri is not null)
         {
-            if (ClientMetadataValidator.ValidateWebUri("jwks_uri", req.JwksUri) is { } jwksUriError)
+            if (ClientMetadataValidator.ValidateServerCallbackUri("jwks_uri", req.JwksUri, opts.DcrAllowPrivateNetworkUris) is { } jwksUriError)
                 return (null, null, OAuthError.InvalidClientMetadata(jwksUriError));
-            // The key set is fetched once, at registration; clients rotate keys with an update.
-            jwks = (await _fetcher.GetAsync(req.JwksUri, MaxJwksBytes, "application/json", ct))?.Content;
+            // Fetched now to validate it; re-fetched when a signature fails (ClientJwksProvider).
+            jwks = (await _fetcher.GetAsync(req.JwksUri, MaxJwksBytes, "application/json", ct,
+                opts.DcrAllowPrivateNetworkUris))?.Content;
             if (jwks is null)
                 return (null, null, OAuthError.InvalidClientMetadata("jwks_uri could not be fetched"));
         }
         if ((req.Jwks is not null || req.JwksUri is not null) && !IsPublicKeySet(jwks))
             return (null, null, OAuthError.InvalidClientMetadata("jwks must be a JWK Set of public keys"));
+        // request_uris (OIDC Registration §2): fetched by the provider, so https and SSRF rules apply.
+        foreach (var requestUri in req.RequestUris ?? [])
+        {
+            if (ClientMetadataValidator.ValidateServerCallbackUri("request_uris", requestUri.Split('#', 2)[0],
+                    opts.DcrAllowPrivateNetworkUris) is { } requestUriError)
+                return (null, null, OAuthError.InvalidClientMetadata(requestUriError));
+        }
+
         if (authMethod == "private_key_jwt" && jwks is null)
             return (null, null, OAuthError.InvalidClientMetadata("private_key_jwt requires jwks or jwks_uri"));
 
@@ -293,6 +302,12 @@ public sealed class DynamicRegistrationEndpointHandler
         if (req.LogoUri is not null &&
             ClientMetadataValidator.ValidateWebUri("logo_uri", req.LogoUri) is { } logoErr)
             return (null, null, OAuthError.InvalidClientMetadata(logoErr));
+        if (req.PolicyUri is not null &&
+            ClientMetadataValidator.ValidateWebUri("policy_uri", req.PolicyUri) is { } policyErr)
+            return (null, null, OAuthError.InvalidClientMetadata(policyErr));
+        if (req.TosUri is not null &&
+            ClientMetadataValidator.ValidateWebUri("tos_uri", req.TosUri) is { } tosErr)
+            return (null, null, OAuthError.InvalidClientMetadata(tosErr));
 
         if (req.BackChannelLogoutUri is not null &&
             ClientMetadataValidator.ValidateServerCallbackUri(
@@ -300,7 +315,7 @@ public sealed class DynamicRegistrationEndpointHandler
             return (null, null, OAuthError.InvalidClientMetadata(bclErr));
 
         // PKCE is on by default and cannot be disabled by public clients (RFC 9700 §2.1.1).
-        var requirePkce = req.RequirePkce ?? true;
+        var requirePkce = req.RequirePkce ?? (opts.DcrRequirePkceByDefault || authMethod == "none");
         if (!requirePkce && authMethod == "none")
             return (null, null, OAuthError.InvalidClientMetadata("public clients must use PKCE"));
 
@@ -356,11 +371,15 @@ public sealed class DynamicRegistrationEndpointHandler
             ClientName = req.ClientName,
             ClientUri = req.ClientUri,
             LogoUri = req.LogoUri,
+            PolicyUri = req.PolicyUri,
+            TosUri = req.TosUri,
             Contacts = req.Contacts ?? [],
             BackChannelLogoutUri = req.BackChannelLogoutUri,
             BackChannelLogoutSessionRequired = req.BackChannelLogoutSessionRequired ?? false,
             PostLogoutRedirectUris = req.PostLogoutRedirectUris ?? [],
             JwksJson = jwks,
+            JwksUri = req.JwksUri,
+            RequestUris = req.RequestUris ?? [],
             IdTokenSignedResponseAlg = idTokenAlg,
             IdTokenEncryptedResponseAlg = idTokenEncAlg,
             IdTokenEncryptedResponseEnc = idTokenEnc,
@@ -424,11 +443,18 @@ public sealed class DynamicRegistrationEndpointHandler
             ClientName = client.ClientName,
             ClientUri = client.ClientUri,
             LogoUri = client.LogoUri,
+            PolicyUri = client.PolicyUri,
+            TosUri = client.TosUri,
             Contacts = client.Contacts.Count > 0 ? client.Contacts : null,
             BackChannelLogoutUri = client.BackChannelLogoutUri,
             BackChannelLogoutSessionRequired = client.BackChannelLogoutSessionRequired,
             PostLogoutRedirectUris = client.PostLogoutRedirectUris.Count > 0 ? client.PostLogoutRedirectUris : null,
-            Jwks = client.JwksJson is null ? null : System.Text.Json.JsonDocument.Parse(client.JwksJson).RootElement.Clone(),
+            // Echo what was registered: the jwks_uri, or the inline set.
+            Jwks = client.JwksUri is not null || client.JwksJson is null
+                ? null
+                : System.Text.Json.JsonDocument.Parse(client.JwksJson).RootElement.Clone(),
+            JwksUri = client.JwksUri,
+            RequestUris = client.RequestUris.Count > 0 ? client.RequestUris : null,
             IdTokenSignedResponseAlg = client.IdTokenSignedResponseAlg,
             IdTokenEncryptedResponseAlg = client.IdTokenEncryptedResponseAlg,
             IdTokenEncryptedResponseEnc = client.IdTokenEncryptedResponseEnc,

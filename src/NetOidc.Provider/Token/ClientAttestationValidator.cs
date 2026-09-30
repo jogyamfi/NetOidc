@@ -14,7 +14,7 @@ namespace NetOidc.Provider.Token;
 /// the <c>OAuth-Client-Attestation</c> header, binding it to a key; the instance proves
 /// possession of that key in the <c>OAuth-Client-Attestation-PoP</c> header.
 /// </summary>
-public sealed class ClientAttestationValidator
+internal sealed class ClientAttestationValidator
 {
     public const string AuthMethod = "attest_jwt_client_auth";
     public const string AttestationHeader = "OAuth-Client-Attestation";

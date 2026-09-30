@@ -16,7 +16,7 @@ namespace NetOidc.Provider.Device;
 /// <c>POST /connect/device_authorization</c> — authenticates the client, issues a
 /// <c>device_code</c> / <c>user_code</c> pair, and returns the verification URI.
 /// </summary>
-public sealed class DeviceAuthorizationEndpointHandler
+internal sealed class DeviceAuthorizationEndpointHandler
 {
     private const string UserCodeChars = "BCDFGHJKLMNPQRSTVWXZ"; // consonants — easy to enter
     private const int UserCodeLength = 8;

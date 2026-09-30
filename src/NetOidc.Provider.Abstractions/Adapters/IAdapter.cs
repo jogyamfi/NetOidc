@@ -2,7 +2,7 @@ namespace NetOidc.Provider.Abstractions.Adapters;
 
 /// <summary>
 /// Pluggable store for a single model type. Implement this for any persistence
-/// backend (EF Core, Redis, Postgres, â€¦).
+/// backend (EF Core, Redis, Postgres, ...).
 /// </summary>
 public interface IAdapter<T> where T : class
 {

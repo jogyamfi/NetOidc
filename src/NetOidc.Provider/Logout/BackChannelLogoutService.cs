@@ -15,10 +15,10 @@ namespace NetOidc.Provider.Logout;
 /// (OIDC Back-Channel Logout §2).
 /// Failures are swallowed — logout proceeds regardless of RP availability.
 /// </summary>
-public sealed class BackChannelLogoutService
+internal sealed class BackChannelLogoutService
 {
-    internal const string TrustedHttpClientName = "NetOidc.BackChannelLogout";
-    internal const string UntrustedHttpClientName = "NetOidc.BackChannelLogout.Untrusted";
+    internal const string TrustedHttpClientName = Http.NetOidcHttpClients.Trusted;
+    internal const string UntrustedHttpClientName = Http.NetOidcHttpClients.Untrusted;
 
     private readonly IClientStore _clientStore;
     private readonly TokenFactory _tokenFactory;

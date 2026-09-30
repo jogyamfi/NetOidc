@@ -9,7 +9,7 @@ namespace NetOidc.Provider.Token;
 
 /// <summary>What a refresh token carries forward to the tokens it later produces.</summary>
 /// <param name="Subject">The End-User's local subject identifier.</param>
-public sealed record RefreshTokenContent(
+internal sealed record RefreshTokenContent(
     string Subject,
     IReadOnlyList<string> Scopes,
     IReadOnlyList<string> Resources,
@@ -25,7 +25,7 @@ public sealed record RefreshTokenContent(
 /// reuse detection (OAuth 2.0 Security BCP, RFC 9700 §4.14.2) and sender-constraint checks
 /// (RFC 9449 §5, RFC 8705 §4).
 /// </summary>
-public sealed class RefreshTokenService
+internal sealed class RefreshTokenService
 {
     private readonly IAdapter<RefreshToken> _tokens;
     private readonly GrantService _grants;

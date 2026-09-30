@@ -9,7 +9,7 @@ namespace NetOidc.Provider.Configuration;
 /// Validates <see cref="ProviderOptions"/> at startup so that an unsafe or unusable
 /// configuration fails fast instead of running.
 /// </summary>
-public sealed class ProviderOptionsValidator : IValidateOptions<ProviderOptions>
+internal sealed class ProviderOptionsValidator : IValidateOptions<ProviderOptions>
 {
     /// <summary>Minimum pairwise salt length in bytes (256 bits).</summary>
     public const int MinPairwiseSaltBytes = 32;
@@ -152,6 +152,9 @@ public sealed class ProviderOptionsValidator : IValidateOptions<ProviderOptions>
             if (opts.FederationAutomaticRegistrationEnabled && opts.FederationTrustAnchors.Count > 0 && !opts.JarEnabled)
                 errors.Add("FederationAutomaticRegistrationEnabled requires JarEnabled.");
         }
+
+        if (opts.RequestUriParameterSupported && !opts.JarEnabled)
+            errors.Add("RequestUriParameterSupported requires JarEnabled.");
 
         foreach (var (attester, jwks) in opts.ClientAttestationTrustedAttesters)
             if (Federation.EntityStatement.TryJwks(jwks) is not { Keys.Count: > 0 })

@@ -11,7 +11,7 @@ namespace NetOidc.Provider.Claims;
 /// Computes the effective subject identifier for a given user+client pair.
 /// Supports "public" (pass-through) and "pairwise" (OIDC Core §8.1) modes.
 /// </summary>
-public sealed class SubjectIdentifierService
+internal sealed class SubjectIdentifierService
 {
     private readonly IOptions<ProviderOptions> _options;
 

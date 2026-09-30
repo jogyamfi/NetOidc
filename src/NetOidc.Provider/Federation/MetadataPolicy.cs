@@ -8,7 +8,7 @@ namespace NetOidc.Provider.Federation;
 /// standard operators <c>value</c>, <c>add</c>, <c>default</c>, <c>one_of</c>,
 /// <c>subset_of</c>, <c>superset_of</c> and <c>essential</c>.
 /// </summary>
-public static class MetadataPolicy
+internal static class MetadataPolicy
 {
     /// <summary>
     /// Applies <paramref name="policy"/> to <paramref name="metadata"/> in place. Returns an error

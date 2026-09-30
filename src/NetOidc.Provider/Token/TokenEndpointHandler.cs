@@ -18,7 +18,7 @@ namespace NetOidc.Provider.Token;
 /// device_code (RFC 8628), and CIBA grant types. Tokens are minted by
 /// <see cref="TokenIssuanceService"/>.
 /// </summary>
-public sealed class TokenEndpointHandler
+internal sealed class TokenEndpointHandler
 {
     // Token type URIs (RFC 8693 §3)
     private const string TokenTypeAccessToken = "urn:ietf:params:oauth:token-type:access_token";
@@ -28,7 +28,7 @@ public sealed class TokenEndpointHandler
     private const string GrantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange";
     private const string GrantTypeJwtBearer = "urn:ietf:params:oauth:grant-type:jwt-bearer";
     private const string GrantTypeDeviceCode = "urn:ietf:params:oauth:grant-type:device_code";
-    private const string GrantTypeCiba = "urn:ietf:params:oauth:grant-type:ciba";
+    private const string GrantTypeCiba = "urn:openid:params:grant-type:ciba";
     private const string GrantTypePreAuthorizedCode = Vci.CredentialOfferService.PreAuthorizedCodeGrantType;
 
     private readonly IOptions<ProviderOptions> _options;
@@ -141,7 +141,8 @@ public sealed class TokenEndpointHandler
                 context.Request.Method,
                 opts.Issuer.TrimEnd('/') + opts.TokenEndpoint,
                 accessToken: null,
-                clockSkewSeconds: opts.DPoPProofLifetimeSeconds);
+                clockSkewSeconds: opts.DPoPProofLifetimeSeconds,
+                allowedAlgorithms: opts.FapiProfile == FapiProfile.None ? null : Jose.RequestObjectValidator.FapiSigningAlgorithms);
 
             if (proof is null)
                 return TokenError(OAuthError.InvalidDPoPProof("DPoP proof is missing or invalid"), 400);
@@ -239,7 +240,8 @@ public sealed class TokenEndpointHandler
         if (authCode.CodeChallenge is not null)
         {
             if (string.IsNullOrEmpty(codeVerifier))
-                return TokenError(OAuthError.InvalidRequest("code_verifier is required"), 400);
+                // RFC 7636 §4.6: the code cannot be redeemed without its verifier.
+                return TokenError(OAuthError.InvalidGrant("code_verifier is required"), 400);
             if (!PkceValidator.Validate(codeVerifier, authCode.CodeChallenge, authCode.CodeChallengeMethod ?? "plain"))
                 return TokenError(OAuthError.InvalidGrant("code_verifier does not match code_challenge"), 400);
         }
@@ -247,6 +249,10 @@ public sealed class TokenEndpointHandler
         {
             return TokenError(OAuthError.InvalidGrant("code_verifier supplied but no code_challenge was sent"), 400);
         }
+
+        // RFC 9449 §10: a code bound with dpop_jkt is redeemed only with a proof from that key.
+        if (authCode.DPoPJkt is not null && authCode.DPoPJkt != binding.Jkt)
+            return TokenError(OAuthError.InvalidGrant("the DPoP proof key does not match the dpop_jkt of the authorization request"), 400);
 
         var (resources, resourceError) = NarrowResources(form, authCode.Resources);
         if (resourceError is not null)

@@ -303,7 +303,7 @@ public sealed class Phase7Tests
 
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
         var location = resp.Headers.Location!.ToString();
-        Assert.Contains("error=invalid_request", location);
+        Assert.Contains("error=unsupported_response_type", location);
         Assert.Contains("FAPI 1.0", Uri.UnescapeDataString(location));
     }
 
@@ -395,7 +395,7 @@ public sealed class Phase7Tests
 
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
         var location = resp.Headers.Location!.ToString();
-        Assert.Contains("error=invalid_request", location);
+        Assert.Contains("error=unsupported_response_type", location);
         Assert.Contains("FAPI 2.0", Uri.UnescapeDataString(location));
     }
 
@@ -415,7 +415,7 @@ public sealed class Phase7Tests
 
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
         var location = resp.Headers.Location!.ToString();
-        Assert.Contains("error=invalid_request", location);
+        Assert.Contains("error=unsupported_response_type", location);
         Assert.Contains("FAPI 2.0", Uri.UnescapeDataString(location));
     }
 
@@ -524,7 +524,7 @@ public sealed class Phase7Tests
             "fapi1-par-client",
             "https://auth.test.example.com/connect/par",
             signingKey,
-            SecurityAlgorithms.RsaSha256);
+            SecurityAlgorithms.RsaSsaPssSha256);
 
         var resp = await app.Client.PostAsync("/connect/par",
             new FormUrlEncodedContent(
@@ -580,7 +580,7 @@ public sealed class Phase7Tests
             "fapi1-par-ok",
             "https://auth.test.example.com/connect/par",
             signingKey,
-            SecurityAlgorithms.RsaSha256);
+            SecurityAlgorithms.RsaSsaPssSha256);
 
         var resp = await app.Client.PostAsync("/connect/par",
             new FormUrlEncodedContent(
@@ -711,8 +711,8 @@ public sealed class Phase7Tests
 
     private static async Task<string> PushAsync(TestWebApp app, RSA rsa, List<KeyValuePair<string, string>> form)
     {
-        var assertion = BuildClientJwtAssertion("fapi-par-client", "https://auth.test.example.com/connect/par",
-            new RsaSecurityKey(rsa.ExportParameters(true)), SecurityAlgorithms.RsaSha256);
+        var assertion = BuildClientJwtAssertion("fapi-par-client", "https://auth.test.example.com",
+            new RsaSecurityKey(rsa.ExportParameters(true)), SecurityAlgorithms.RsaSsaPssSha256);
         form.Add(new("client_id", "fapi-par-client"));
         form.Add(new("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"));
         form.Add(new("client_assertion", assertion));

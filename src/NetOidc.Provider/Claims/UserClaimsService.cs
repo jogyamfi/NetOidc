@@ -31,7 +31,7 @@ public sealed record UserClaimsRequest(
 /// Resolves End-User claims through <see cref="ProviderOptions.FindUserClaims"/> and releases
 /// only claims justified by granted scopes (OIDC Core §5.4) or the <c>claims</c> request (§5.5).
 /// </summary>
-public sealed class UserClaimsService
+internal sealed class UserClaimsService
 {
     private readonly IOptions<ProviderOptions> _options;
 
@@ -75,6 +75,6 @@ public sealed class UserClaimsService
     private static readonly HashSet<string> ProtocolClaims = new(StringComparer.Ordinal)
     {
         "sub", "iss", "aud", "exp", "iat", "nbf", "jti", "auth_time", "nonce", "acr", "amr",
-        "azp", "at_hash", "c_hash", "sid", "cnf", "scope", "client_id",
+        "azp", "at_hash", "c_hash", "s_hash", "sid", "cnf", "scope", "client_id",
     };
 }

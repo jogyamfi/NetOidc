@@ -13,7 +13,7 @@ namespace NetOidc.Provider.Dcr;
 /// (draft-ietf-oauth-client-id-metadata-document): the provider fetches the document from the
 /// <c>client_id</c> URL, validates it, and treats it as the client's registration.
 /// </summary>
-public sealed class ClientIdMetadataDocumentResolver : IClientResolver
+internal sealed class ClientIdMetadataDocumentResolver : IClientResolver
 {
     private static readonly TimeSpan MinCache = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan MaxCache = TimeSpan.FromDays(1);
@@ -110,6 +110,8 @@ public sealed class ClientIdMetadataDocumentResolver : IClientResolver
             ClientName = String(root, "client_name"),
             ClientUri = String(root, "client_uri"),
             LogoUri = String(root, "logo_uri"),
+            PolicyUri = String(root, "policy_uri"),
+            TosUri = String(root, "tos_uri"),
             // Unknown third party: always PKCE, always ask the End-User.
             RequirePkce = true,
             RequireConsent = true,

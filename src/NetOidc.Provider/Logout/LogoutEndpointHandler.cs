@@ -24,10 +24,10 @@ namespace NetOidc.Provider.Logout;
 ///   <c>confirm=true</c> and an antiforgery token.</item>
 ///   <item>End the session: sign out, remove the OIDC session, notify clients over the back
 ///   channel and, when enabled, the front channel.</item>
-///   <item>Redirect to <c>post_logout_redirect_uri</c> (with <c>state</c>) or return 204.</item>
+///   <item>Redirect to <c>post_logout_redirect_uri</c> (with <c>state</c>) or show a signed-out page.</item>
 /// </list>
 /// </summary>
-public sealed class LogoutEndpointHandler
+internal sealed class LogoutEndpointHandler
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly IClientStore _clientStore;
@@ -171,7 +171,10 @@ public sealed class LogoutEndpointHandler
         if (frontChannelUris.Count > 0)
             return Results.Content(FrontChannelPage(frontChannelUris, target), "text/html");
 
-        return target is not null ? Results.Redirect(target) : Results.NoContent();
+        // Without a (valid) post_logout_redirect_uri the End-User stays here: tell them it worked.
+        return target is not null
+            ? Results.Redirect(target)
+            : Results.Content(FrontChannelPage([], null), "text/html");
     }
 
     /// <summary>

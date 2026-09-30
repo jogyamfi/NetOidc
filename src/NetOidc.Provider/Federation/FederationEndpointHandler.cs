@@ -10,7 +10,7 @@ namespace NetOidc.Provider.Federation;
 /// signed entity configuration (OpenID Federation 1.1 §6.2.1).
 /// The response content-type is <c>application/entity-statement+jwt</c>.
 /// </summary>
-public sealed class FederationEndpointHandler
+internal sealed class FederationEndpointHandler
 {
     private readonly IOptions<ProviderOptions> _options;
     private readonly FederationService _federationService;

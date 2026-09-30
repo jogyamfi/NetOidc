@@ -5,7 +5,7 @@ using NetOidc.Provider.Abstractions.Adapters;
 
 namespace NetOidc.Provider.Tests;
 
-/// <summary>Client ID Metadata Documents (P5.6): URL client_ids resolved from a fetched document.</summary>
+/// <summary>Client ID Metadata Documents (P5.5): URL client_ids resolved from a fetched document.</summary>
 public sealed class ClientIdMetadataDocumentTests
 {
     private const string ClientId = "https://app.example.net/oauth/client.json";

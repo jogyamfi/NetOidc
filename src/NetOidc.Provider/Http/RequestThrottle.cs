@@ -9,7 +9,7 @@ namespace NetOidc.Provider.Http;
 /// In-process throttles that protect guessable secrets and unauthenticated endpoints.
 /// Enforced inside the handlers, so they apply without the host adding rate-limiting middleware.
 /// </summary>
-public sealed class RequestThrottle : IDisposable
+internal sealed class RequestThrottle : IDisposable
 {
     private readonly PartitionedRateLimiter<string> _userCodeFailures;
     private readonly PartitionedRateLimiter<string>? _unauthenticated;

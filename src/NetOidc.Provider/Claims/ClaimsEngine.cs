@@ -8,7 +8,7 @@ namespace NetOidc.Provider.Claims;
 /// Parses the OIDC <c>claims</c> request parameter (OIDC Core §5.5) and maps scopes to the
 /// claims they release (§5.4).
 /// </summary>
-public static class ClaimsEngine
+internal static class ClaimsEngine
 {
     /// <summary>Claims released by the standard OIDC scopes (OIDC Core §5.4).</summary>
     public static readonly IReadOnlyDictionary<string, string[]> StandardScopeClaims =

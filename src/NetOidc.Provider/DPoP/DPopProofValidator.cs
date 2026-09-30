@@ -14,9 +14,9 @@ namespace NetOidc.Provider.DPoP;
 /// Thread-safe; proof `jti` values are recorded in an <see cref="IReplayCache"/>.
 /// </summary>
 /// <summary>A validated DPoP proof: the key thumbprint and the server nonce it carried, if any.</summary>
-public sealed record DPoPProof(string Thumbprint, string? Nonce);
+internal sealed record DPoPProof(string Thumbprint, string? Nonce);
 
-public sealed class DPopProofValidator
+internal sealed class DPopProofValidator
 {
     private readonly IReplayCache _replayCache;
     private readonly JsonWebTokenHandler _jwtHandler = new();
@@ -48,13 +48,15 @@ public sealed class DPopProofValidator
     /// claim can be checked.  Pass <c>null</c> on the token endpoint.
     /// </param>
     /// <param name="clockSkewSeconds">Allowed IAT drift (default 300 s).</param>
+    /// <param name="allowedAlgorithms">Narrows the accepted algorithms (e.g. PS256/ES256 under FAPI).</param>
     public async Task<string?> ValidateProofAsync(
         string? dpopHeader,
         string httpMethod,
         string httpUri,
         string? accessToken = null,
-        int clockSkewSeconds = 300) =>
-        (await ValidateAsync(dpopHeader, httpMethod, httpUri, accessToken, clockSkewSeconds))?.Thumbprint;
+        int clockSkewSeconds = 300,
+        IReadOnlyCollection<string>? allowedAlgorithms = null) =>
+        (await ValidateAsync(dpopHeader, httpMethod, httpUri, accessToken, clockSkewSeconds, allowedAlgorithms))?.Thumbprint;
 
     /// <summary>
     /// Validates a DPoP proof and returns its JWK thumbprint and <c>nonce</c> claim, or
@@ -65,7 +67,8 @@ public sealed class DPopProofValidator
         string httpMethod,
         string httpUri,
         string? accessToken = null,
-        int clockSkewSeconds = 300)
+        int clockSkewSeconds = 300,
+        IReadOnlyCollection<string>? allowedAlgorithms = null)
     {
         if (string.IsNullOrEmpty(dpopHeader))
             return null;
@@ -80,7 +83,8 @@ public sealed class DPopProofValidator
             return null;
 
         var alg = jwt.Alg;
-        if (string.IsNullOrEmpty(alg) || alg == "none" || !SupportedAlgorithms.Contains(alg))
+        if (string.IsNullOrEmpty(alg) || alg == "none" || !SupportedAlgorithms.Contains(alg) ||
+            (allowedAlgorithms is not null && !allowedAlgorithms.Contains(alg)))
             return null;
 
         // Extract the embedded public JWK from the JOSE header.
@@ -88,6 +92,9 @@ public sealed class DPopProofValidator
         if (embedded is null)
             return null;
         var jwk = embedded.Value.Key;
+        // Weak keys would make the binding forgeable (NIST SP 800-131A: RSA ≥ 2048 bits).
+        if (jwk.Kty == "RSA" && Base64UrlEncoder.DecodeBytes(jwk.N ?? string.Empty).Length < 256)
+            return null;
 
         // Cryptographically verify the proof using the embedded public key.
         var result = await _jwtHandler.ValidateTokenAsync(dpopHeader,
@@ -149,10 +156,9 @@ public sealed class DPopProofValidator
         if (string.IsNullOrEmpty(htu)) return false;
         if (!Uri.TryCreate(htu, UriKind.Absolute, out var htuUri)) return false;
         if (!Uri.TryCreate(requestUri, UriKind.Absolute, out var reqUri)) return false;
-        return string.Equals(
-            htuUri.GetLeftPart(UriPartial.Path).TrimEnd('/'),
-            reqUri.GetLeftPart(UriPartial.Path).TrimEnd('/'),
-            StringComparison.OrdinalIgnoreCase);
+        // RFC 3986 §6.2.2: scheme and host are case-insensitive, the path is not.
+        return Uri.Compare(htuUri, reqUri, UriComponents.SchemeAndServer, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0 &&
+               string.Equals(htuUri.AbsolutePath.TrimEnd('/'), reqUri.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal);
     }
 
     /// <summary>

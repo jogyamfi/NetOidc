@@ -25,6 +25,12 @@ public sealed class AuthorizationCode
     public string? CodeChallenge { get; init; }
     public string? CodeChallengeMethod { get; init; }
 
+    /// <summary>
+    /// JWK thumbprint the code is bound to (<c>dpop_jkt</c>, RFC 9449 §10): the token request
+    /// must carry a DPoP proof signed with that key.
+    /// </summary>
+    public string? DPoPJkt { get; init; }
+
     /// <summary>When the End-User actually authenticated (OIDC Core §2 <c>auth_time</c>).</summary>
     public required DateTimeOffset AuthTime { get; init; }
 

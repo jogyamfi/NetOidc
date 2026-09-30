@@ -31,7 +31,7 @@ public sealed class ProviderKey
     /// </summary>
     public required SecurityKey Key { get; init; }
 
-    /// <summary>JWA algorithm: RS256…PS512, ES256…ES512 for signing; RSA-OAEP(-256) for encryption.</summary>
+    /// <summary>JWA algorithm: RS256…PS512, ES256…ES512 for signing; RSA-OAEP for encryption.</summary>
     public required string Algorithm { get; init; }
 
     public ProviderKeyUse Use { get; init; } = ProviderKeyUse.Signing;

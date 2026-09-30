@@ -81,6 +81,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IAdapter<Client>>()));
         services.TryAddSingleton<IAdapter<Client>, InMemoryAdapter<Client>>();
         services.TryAddSingleton<SafeHttpFetcher>();
+        services.TryAddSingleton<Jose.ClientJwksProvider>();
         services.TryAddSingleton<Token.ClientAttestationValidator>();
         // Resolver order matters: a federation entity is tried before a metadata document.
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IClientResolver, FederationClientResolver>());
@@ -105,6 +106,7 @@ public static class ServiceCollectionExtensions
 
         // Interaction
         services.TryAddSingleton<ConsentService>();
+        services.TryAddSingleton<InteractionDenialService>();
         services.TryAddSingleton<IInteractionService, DefaultInteractionService>();
 
         // Claims
@@ -122,6 +124,8 @@ public static class ServiceCollectionExtensions
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
             {
                 AllowAutoRedirect = false,
+                // A proxy would resolve and connect on our behalf, bypassing the address check.
+                UseProxy = false,
                 ConnectCallback = NetworkAddressPolicy.ConnectPublicOnlyAsync,
             });
         services.TryAddSingleton<BackChannelLogoutService>();

@@ -1,0 +1,684 @@
+#nullable enable
+NetOidc.Provider.Adapters.InMemoryAdapter<T>
+NetOidc.Provider.Adapters.InMemoryAdapter<T>.ConsumeAsync(string! id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<T?>!
+NetOidc.Provider.Adapters.InMemoryAdapter<T>.FindAsync(string! id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<T?>!
+NetOidc.Provider.Adapters.InMemoryAdapter<T>.InMemoryAdapter() -> void
+NetOidc.Provider.Adapters.InMemoryAdapter<T>.RemoveAsync(string! id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Adapters.InMemoryAdapter<T>.StoreAsync(string! id, T! entity, System.TimeSpan? expiresIn = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Adapters.InMemoryClientStore
+NetOidc.Provider.Adapters.InMemoryClientStore.FindClientAsync(string! clientId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NetOidc.Provider.Abstractions.Models.Client?>!
+NetOidc.Provider.Adapters.InMemoryClientStore.InMemoryClientStore(Microsoft.Extensions.Options.IOptions<NetOidc.Provider.Configuration.ProviderOptions!>! options) -> void
+NetOidc.Provider.Adapters.InMemoryDynamicClientStore
+NetOidc.Provider.Adapters.InMemoryDynamicClientStore.FindClientAsync(string! clientId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NetOidc.Provider.Abstractions.Models.Client?>!
+NetOidc.Provider.Adapters.InMemoryDynamicClientStore.InMemoryDynamicClientStore(Microsoft.Extensions.Options.IOptions<NetOidc.Provider.Configuration.ProviderOptions!>! options) -> void
+NetOidc.Provider.Adapters.InMemoryDynamicClientStore.RemoveClientAsync(string! clientId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Adapters.InMemoryDynamicClientStore.StoreClientAsync(NetOidc.Provider.Abstractions.Models.Client! client, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Adapters.InMemoryReplayCache
+NetOidc.Provider.Adapters.InMemoryReplayCache.InMemoryReplayCache() -> void
+NetOidc.Provider.Adapters.InMemoryReplayCache.TryAddAsync(string! key, System.DateTimeOffset expiresAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+NetOidc.Provider.Ciba.ICibaService
+NetOidc.Provider.Ciba.ICibaService.CompleteAsync(string! authReqId, bool approve, string? subject = null, System.Collections.Generic.IReadOnlyList<string!>? grantedScopes = null, string? acr = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+NetOidc.Provider.Ciba.ICibaService.FindAsync(string! authReqId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest?>!
+NetOidc.Provider.Claims.ClaimRequest
+NetOidc.Provider.Claims.ClaimRequest.ClaimRequest(bool Essential, string![]? Values) -> void
+NetOidc.Provider.Claims.ClaimRequest.Essential.get -> bool
+NetOidc.Provider.Claims.ClaimRequest.Essential.init -> void
+NetOidc.Provider.Claims.ClaimRequest.Values.get -> string![]?
+NetOidc.Provider.Claims.ClaimRequest.Values.init -> void
+NetOidc.Provider.Claims.ClaimsDestination
+NetOidc.Provider.Claims.ClaimsDestination.IdToken = 0 -> NetOidc.Provider.Claims.ClaimsDestination
+NetOidc.Provider.Claims.ClaimsDestination.UserInfo = 1 -> NetOidc.Provider.Claims.ClaimsDestination
+NetOidc.Provider.Claims.ParsedClaimsRequest
+NetOidc.Provider.Claims.ParsedClaimsRequest.IdToken.get -> System.Collections.Generic.IReadOnlyDictionary<string!, NetOidc.Provider.Claims.ClaimRequest!>!
+NetOidc.Provider.Claims.ParsedClaimsRequest.IdToken.init -> void
+NetOidc.Provider.Claims.ParsedClaimsRequest.ParsedClaimsRequest(System.Collections.Generic.IReadOnlyDictionary<string!, NetOidc.Provider.Claims.ClaimRequest!>! IdToken, System.Collections.Generic.IReadOnlyDictionary<string!, NetOidc.Provider.Claims.ClaimRequest!>! UserInfo) -> void
+NetOidc.Provider.Claims.ParsedClaimsRequest.UserInfo.get -> System.Collections.Generic.IReadOnlyDictionary<string!, NetOidc.Provider.Claims.ClaimRequest!>!
+NetOidc.Provider.Claims.ParsedClaimsRequest.UserInfo.init -> void
+NetOidc.Provider.Claims.UserClaimsRequest
+NetOidc.Provider.Claims.UserClaimsRequest.ClaimNames.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
+NetOidc.Provider.Claims.UserClaimsRequest.ClaimNames.init -> void
+NetOidc.Provider.Claims.UserClaimsRequest.ClientId.get -> string!
+NetOidc.Provider.Claims.UserClaimsRequest.ClientId.init -> void
+NetOidc.Provider.Claims.UserClaimsRequest.Destination.get -> NetOidc.Provider.Claims.ClaimsDestination
+NetOidc.Provider.Claims.UserClaimsRequest.Destination.init -> void
+NetOidc.Provider.Claims.UserClaimsRequest.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Claims.UserClaimsRequest.Scopes.init -> void
+NetOidc.Provider.Claims.UserClaimsRequest.Subject.get -> string!
+NetOidc.Provider.Claims.UserClaimsRequest.Subject.init -> void
+NetOidc.Provider.Claims.UserClaimsRequest.UserClaimsRequest(string! Subject, string! ClientId, System.Collections.Generic.IReadOnlyList<string!>! Scopes, System.Collections.Generic.IReadOnlyCollection<string!>! ClaimNames, NetOidc.Provider.Claims.ClaimsDestination Destination) -> void
+NetOidc.Provider.Configuration.FapiProfile
+NetOidc.Provider.Configuration.FapiProfile.Fapi1Advanced = 1 -> NetOidc.Provider.Configuration.FapiProfile
+NetOidc.Provider.Configuration.FapiProfile.Fapi2MessageSigning = 3 -> NetOidc.Provider.Configuration.FapiProfile
+NetOidc.Provider.Configuration.FapiProfile.Fapi2Security = 2 -> NetOidc.Provider.Configuration.FapiProfile
+NetOidc.Provider.Configuration.FapiProfile.FapiCiba = 4 -> NetOidc.Provider.Configuration.FapiProfile
+NetOidc.Provider.Configuration.FapiProfile.None = 0 -> NetOidc.Provider.Configuration.FapiProfile
+NetOidc.Provider.Configuration.IntrospectionContext
+NetOidc.Provider.Configuration.IntrospectionContext.Audiences.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Configuration.IntrospectionContext.Audiences.init -> void
+NetOidc.Provider.Configuration.IntrospectionContext.CallerClientId.get -> string!
+NetOidc.Provider.Configuration.IntrospectionContext.CallerClientId.init -> void
+NetOidc.Provider.Configuration.IntrospectionContext.IntrospectionContext(string! CallerClientId, string! TokenClientId, string? Subject, System.Collections.Generic.IReadOnlyList<string!>! Audiences, System.Collections.Generic.IReadOnlyList<string!>! Scopes) -> void
+NetOidc.Provider.Configuration.IntrospectionContext.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Configuration.IntrospectionContext.Scopes.init -> void
+NetOidc.Provider.Configuration.IntrospectionContext.Subject.get -> string?
+NetOidc.Provider.Configuration.IntrospectionContext.Subject.init -> void
+NetOidc.Provider.Configuration.IntrospectionContext.TokenClientId.get -> string!
+NetOidc.Provider.Configuration.IntrospectionContext.TokenClientId.init -> void
+NetOidc.Provider.Configuration.JwtBearerContext
+NetOidc.Provider.Configuration.JwtBearerContext.ClientId.get -> string!
+NetOidc.Provider.Configuration.JwtBearerContext.ClientId.init -> void
+NetOidc.Provider.Configuration.JwtBearerContext.JwtBearerContext(string! ClientId, string? Subject, System.Collections.Generic.IReadOnlyList<string!>! RequestedScopes) -> void
+NetOidc.Provider.Configuration.JwtBearerContext.RequestedScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Configuration.JwtBearerContext.RequestedScopes.init -> void
+NetOidc.Provider.Configuration.JwtBearerContext.Subject.get -> string?
+NetOidc.Provider.Configuration.JwtBearerContext.Subject.init -> void
+NetOidc.Provider.Configuration.NetOidcBuilder
+NetOidc.Provider.Configuration.NetOidcBuilder.AddEncryptionKey(Microsoft.IdentityModel.Tokens.SecurityKey! key, string! algorithm = "RSA-OAEP", System.DateTimeOffset? notBefore = null, System.DateTimeOffset? notAfter = null, string? keyId = null) -> NetOidc.Provider.Configuration.NetOidcBuilder!
+NetOidc.Provider.Configuration.NetOidcBuilder.AddEventSink<T>() -> NetOidc.Provider.Configuration.NetOidcBuilder!
+NetOidc.Provider.Configuration.NetOidcBuilder.AddFederationKey(Microsoft.IdentityModel.Tokens.SecurityKey! key, string! algorithm = "RS256", System.DateTimeOffset? notBefore = null, System.DateTimeOffset? notAfter = null, string? keyId = null) -> NetOidc.Provider.Configuration.NetOidcBuilder!
+NetOidc.Provider.Configuration.NetOidcBuilder.AddKey(NetOidc.Provider.Jose.ProviderKey! key) -> NetOidc.Provider.Configuration.NetOidcBuilder!
+NetOidc.Provider.Configuration.NetOidcBuilder.AddSigningCertificate(System.Security.Cryptography.X509Certificates.X509Certificate2! certificate, string! algorithm = "RS256", System.DateTimeOffset? notBefore = null, System.DateTimeOffset? notAfter = null) -> NetOidc.Provider.Configuration.NetOidcBuilder!
+NetOidc.Provider.Configuration.NetOidcBuilder.AddSigningKey(Microsoft.IdentityModel.Tokens.SecurityKey! key, string! algorithm = "RS256", System.DateTimeOffset? notBefore = null, System.DateTimeOffset? notAfter = null, string? keyId = null) -> NetOidc.Provider.Configuration.NetOidcBuilder!
+NetOidc.Provider.Configuration.NetOidcBuilder.Services.get -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+NetOidc.Provider.Configuration.NetOidcBuilder.UseFapiProfile(NetOidc.Provider.Configuration.FapiProfile profile, bool validate = false) -> NetOidc.Provider.Configuration.NetOidcBuilder!
+NetOidc.Provider.Configuration.NetOidcBuilder.UseKeyStore<T>() -> NetOidc.Provider.Configuration.NetOidcBuilder!
+NetOidc.Provider.Configuration.ProviderOptions
+NetOidc.Provider.Configuration.ProviderOptions.AccessTokenFormat.get -> NetOidc.Provider.Abstractions.Models.TokenFormat
+NetOidc.Provider.Configuration.ProviderOptions.AccessTokenFormat.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.AccessTokenLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.AccessTokenLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.AllowNativeAppRedirects.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.AllowNativeAppRedirects.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.AllowPlainPkce.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.AllowPlainPkce.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.AllowedResources.get -> System.Collections.Generic.IList<string!>!
+NetOidc.Provider.Configuration.ProviderOptions.AllowedResources.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizationCodeLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizationCodeLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizationDetailsTypesSupported.get -> System.Collections.Generic.IList<string!>!
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizationDetailsTypesSupported.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizationEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizationEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizeIntrospection.get -> System.Func<NetOidc.Provider.Configuration.IntrospectionContext!, System.Threading.CancellationToken, System.Threading.Tasks.Task<bool>!>?
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizeIntrospection.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizeJwtBearerSubject.get -> System.Func<NetOidc.Provider.Configuration.JwtBearerContext!, System.Threading.CancellationToken, System.Threading.Tasks.Task<bool>!>?
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizeJwtBearerSubject.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizeTokenExchange.get -> System.Func<NetOidc.Provider.Configuration.TokenExchangeContext!, System.Threading.CancellationToken, System.Threading.Tasks.Task<bool>!>?
+NetOidc.Provider.Configuration.ProviderOptions.AuthorizeTokenExchange.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.BackChannelLogoutEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.BackChannelLogoutEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.BackchannelAuthenticationEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.BackchannelAuthenticationEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.CibaAuthReqIdLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.CibaAuthReqIdLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.CibaEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.CibaEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.CibaMaxBindingMessageLength.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.CibaMaxBindingMessageLength.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.CibaMaxRequestedExpirySeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.CibaMaxRequestedExpirySeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.CibaPollingIntervalSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.CibaPollingIntervalSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ClientAssertionMaxLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.ClientAssertionMaxLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ClientAttestationTrustedAttesters.get -> System.Collections.Generic.IDictionary<string!, string!>!
+NetOidc.Provider.Configuration.ProviderOptions.ClientAttestationTrustedAttesters.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ClientIdMetadataDocumentAllowedHosts.get -> System.Collections.Generic.IList<string!>!
+NetOidc.Provider.Configuration.ProviderOptions.ClientIdMetadataDocumentAllowedHosts.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ClientIdMetadataDocumentCacheSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.ClientIdMetadataDocumentCacheSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ClientIdMetadataDocumentEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.ClientIdMetadataDocumentEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ClientIdMetadataDocumentMaxBytes.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.ClientIdMetadataDocumentMaxBytes.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ClientSecretLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.ClientSecretLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ConsentPath.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.ConsentPath.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.CorsAllowedOrigins.get -> System.Collections.Generic.IList<string!>!
+NetOidc.Provider.Configuration.ProviderOptions.CorsAllowedOrigins.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.CorsEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.CorsEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DPoPEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.DPoPEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DPoPNonceLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.DPoPNonceLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DPoPNonceSecret.get -> string?
+NetOidc.Provider.Configuration.ProviderOptions.DPoPNonceSecret.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DPoPProofLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.DPoPProofLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DPoPRequireNonce.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.DPoPRequireNonce.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DcrAllowPrivateNetworkUris.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.DcrAllowPrivateNetworkUris.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DcrAllowedGrantTypes.get -> System.Collections.Generic.IList<string!>!
+NetOidc.Provider.Configuration.ProviderOptions.DcrAllowedGrantTypes.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DcrEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.DcrEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DcrRequirePkceByDefault.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.DcrRequirePkceByDefault.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DcrRotateRegistrationTokens.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.DcrRotateRegistrationTokens.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DefaultSigningAlgorithm.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.DefaultSigningAlgorithm.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DeviceAuthorizationEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.DeviceAuthorizationEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DeviceCodeLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.DeviceCodeLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DeviceFlowEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.DeviceFlowEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DevicePollingIntervalSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.DevicePollingIntervalSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DeviceUserCodeFailureWindowSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.DeviceUserCodeFailureWindowSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DeviceUserCodeMaxFailedAttempts.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.DeviceUserCodeMaxFailedAttempts.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DeviceVerificationUri.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.DeviceVerificationUri.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.DiscoveryEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.DiscoveryEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.EndSessionEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.EndSessionEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FapiProfile.get -> NetOidc.Provider.Configuration.FapiProfile
+NetOidc.Provider.Configuration.ProviderOptions.FapiProfile.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FapiProfileValidationEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.FapiProfileValidationEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FederationAuthorityHints.get -> System.Collections.Generic.IList<string!>!
+NetOidc.Provider.Configuration.ProviderOptions.FederationAuthorityHints.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FederationAutomaticRegistrationEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.FederationAutomaticRegistrationEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FederationEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.FederationEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FederationEntityMetadata.get -> System.Collections.Generic.IDictionary<string!, object!>!
+NetOidc.Provider.Configuration.ProviderOptions.FederationEntityMetadata.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FederationEntityStatementLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.FederationEntityStatementLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FederationExplicitRegistrationEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.FederationExplicitRegistrationEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FederationMaxChainLength.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.FederationMaxChainLength.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FederationMaxStatementBytes.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.FederationMaxStatementBytes.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FederationRegistrationEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.FederationRegistrationEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FederationTrustAnchors.get -> System.Collections.Generic.IDictionary<string!, string!>!
+NetOidc.Provider.Configuration.ProviderOptions.FederationTrustAnchors.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FindUserClaims.get -> System.Func<NetOidc.Provider.Claims.UserClaimsRequest!, System.Threading.CancellationToken, System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyDictionary<string!, object!>!>!>!
+NetOidc.Provider.Configuration.ProviderOptions.FindUserClaims.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.FrontChannelLogoutEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.FrontChannelLogoutEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.IdTokenLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.IdTokenLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.InitialAccessToken.get -> string?
+NetOidc.Provider.Configuration.ProviderOptions.InitialAccessToken.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.InteractionLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.InteractionLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.IntrospectionEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.IntrospectionEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.IssueCredential.get -> System.Func<NetOidc.Provider.Vci.CredentialIssuanceRequest!, System.Threading.CancellationToken, System.Threading.Tasks.Task<NetOidc.Provider.Vci.CredentialIssuanceResult!>!>?
+NetOidc.Provider.Configuration.ProviderOptions.IssueCredential.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.IssueRefreshTokens.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.IssueRefreshTokens.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.Issuer.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.Issuer.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.IssuerIdentificationEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.IssuerIdentificationEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.JarEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.JarEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.JarRequireSignedRequestObject.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.JarRequireSignedRequestObject.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.JarmEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.JarmEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.JwksEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.JwksEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.JwtBearerGrantEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.JwtBearerGrantEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.Keys.get -> System.Collections.Generic.IList<NetOidc.Provider.Jose.ProviderKey!>!
+NetOidc.Provider.Configuration.ProviderOptions.Keys.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.LoginPath.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.LoginPath.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.LogoutConfirmationPath.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.LogoutConfirmationPath.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.LogoutEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.LogoutEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.LogoutTokenLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.LogoutTokenLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.MtlsCertificateAuthorities.get -> System.Collections.Generic.IList<System.Security.Cryptography.X509Certificates.X509Certificate2!>!
+NetOidc.Provider.Configuration.ProviderOptions.MtlsCertificateAuthorities.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.MtlsClientCertificateHeader.get -> string?
+NetOidc.Provider.Configuration.ProviderOptions.MtlsClientCertificateHeader.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.MtlsEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.MtlsEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.MtlsRevocationMode.get -> System.Security.Cryptography.X509Certificates.X509RevocationMode
+NetOidc.Provider.Configuration.ProviderOptions.MtlsRevocationMode.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.MtlsTrustedProxies.get -> System.Collections.Generic.IList<string!>!
+NetOidc.Provider.Configuration.ProviderOptions.MtlsTrustedProxies.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.OnCredentialNotification.get -> System.Func<NetOidc.Provider.Vci.CredentialNotification!, System.Threading.CancellationToken, System.Threading.Tasks.Task!>?
+NetOidc.Provider.Configuration.ProviderOptions.OnCredentialNotification.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.PairwiseSalt.get -> string?
+NetOidc.Provider.Configuration.ProviderOptions.PairwiseSalt.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ProcessBackchannelAuthenticationRequest.get -> System.Func<NetOidc.Provider.Abstractions.Models.BackchannelAuthenticationRequest!, System.Threading.CancellationToken, System.Threading.Tasks.Task!>?
+NetOidc.Provider.Configuration.ProviderOptions.ProcessBackchannelAuthenticationRequest.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ProviderOptions() -> void
+NetOidc.Provider.Configuration.ProviderOptions.PushedAuthorizationEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.PushedAuthorizationEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.PushedAuthorizationEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.PushedAuthorizationEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.PushedAuthorizationLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.PushedAuthorizationLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.RefreshTokenLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.RefreshTokenLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.RegistrationEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.RegistrationEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.RenderErrorPage.get -> System.Func<Microsoft.AspNetCore.Http.HttpContext!, NetOidc.Provider.Errors.OAuthError!, System.Threading.Tasks.Task<Microsoft.AspNetCore.Http.IResult!>!>?
+NetOidc.Provider.Configuration.ProviderOptions.RenderErrorPage.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.RequestUriMaxBytes.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.RequestUriMaxBytes.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.RequestUriParameterSupported.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.RequestUriParameterSupported.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.RequirePushedAuthorization.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.RequirePushedAuthorization.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ResourceIndicatorsEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.ResourceIndicatorsEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.RetrieveDeferredCredential.get -> System.Func<NetOidc.Provider.Vci.DeferredCredentialRequest!, System.Threading.CancellationToken, System.Threading.Tasks.Task<NetOidc.Provider.Vci.CredentialIssuanceResult!>!>?
+NetOidc.Provider.Configuration.ProviderOptions.RetrieveDeferredCredential.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.RevocationEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.RevocationEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.RichAuthorizationRequestsEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.RichAuthorizationRequestsEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.RotateRefreshTokens.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.RotateRefreshTokens.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.Scopes.get -> System.Collections.Generic.IList<NetOidc.Provider.Abstractions.Models.Scope!>!
+NetOidc.Provider.Configuration.ProviderOptions.Scopes.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.SessionLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.SessionLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.StaticClients.get -> System.Collections.Generic.IList<NetOidc.Provider.Abstractions.Models.Client!>!
+NetOidc.Provider.Configuration.ProviderOptions.StaticClients.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.SubjectType.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.SubjectType.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.TokenEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.TokenEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.TokenExchangeEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.TokenExchangeEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.UnauthenticatedRequestsPerMinute.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.UnauthenticatedRequestsPerMinute.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.UserInfoEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.UserInfoEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.ValidateDynamicClient.get -> System.Func<NetOidc.Provider.Abstractions.Models.Client!, System.Threading.CancellationToken, System.Threading.Tasks.Task!>?
+NetOidc.Provider.Configuration.ProviderOptions.ValidateDynamicClient.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciBatchSize.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.VciBatchSize.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciCredentialConfigurations.get -> System.Collections.Generic.IList<NetOidc.Provider.Vci.CredentialConfiguration!>!
+NetOidc.Provider.Configuration.ProviderOptions.VciCredentialConfigurations.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciCredentialEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.VciCredentialEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciCredentialIssuer.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.VciCredentialIssuer.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciCredentialOfferEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.VciCredentialOfferEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciDeferredCredentialEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.VciDeferredCredentialEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciDeferredTransactionLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.VciDeferredTransactionLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciEnabled.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.VciEnabled.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciNonceEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.VciNonceEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciNonceLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.VciNonceLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciNotificationEndpoint.get -> string!
+NetOidc.Provider.Configuration.ProviderOptions.VciNotificationEndpoint.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciNotificationLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.VciNotificationLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciPreAuthorizedAnonymousAccess.get -> bool
+NetOidc.Provider.Configuration.ProviderOptions.VciPreAuthorizedAnonymousAccess.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciPreAuthorizedCodeLifetimeSeconds.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.VciPreAuthorizedCodeLifetimeSeconds.set -> void
+NetOidc.Provider.Configuration.ProviderOptions.VciTxCodeMaxAttempts.get -> int
+NetOidc.Provider.Configuration.ProviderOptions.VciTxCodeMaxAttempts.set -> void
+NetOidc.Provider.Configuration.TokenExchangeContext
+NetOidc.Provider.Configuration.TokenExchangeContext.Audiences.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Configuration.TokenExchangeContext.Audiences.init -> void
+NetOidc.Provider.Configuration.TokenExchangeContext.ClientId.get -> string!
+NetOidc.Provider.Configuration.TokenExchangeContext.ClientId.init -> void
+NetOidc.Provider.Configuration.TokenExchangeContext.RequestedScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Configuration.TokenExchangeContext.RequestedScopes.init -> void
+NetOidc.Provider.Configuration.TokenExchangeContext.Resources.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Configuration.TokenExchangeContext.Resources.init -> void
+NetOidc.Provider.Configuration.TokenExchangeContext.Subject.get -> string?
+NetOidc.Provider.Configuration.TokenExchangeContext.Subject.init -> void
+NetOidc.Provider.Configuration.TokenExchangeContext.SubjectTokenClientId.get -> string!
+NetOidc.Provider.Configuration.TokenExchangeContext.SubjectTokenClientId.init -> void
+NetOidc.Provider.Configuration.TokenExchangeContext.SubjectTokenScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Configuration.TokenExchangeContext.SubjectTokenScopes.init -> void
+NetOidc.Provider.Configuration.TokenExchangeContext.SubjectTokenType.get -> string!
+NetOidc.Provider.Configuration.TokenExchangeContext.SubjectTokenType.init -> void
+NetOidc.Provider.Configuration.TokenExchangeContext.TokenExchangeContext(string! ClientId, string! SubjectTokenClientId, string? Subject, string! SubjectTokenType, System.Collections.Generic.IReadOnlyList<string!>! SubjectTokenScopes, System.Collections.Generic.IReadOnlyList<string!>! RequestedScopes, System.Collections.Generic.IReadOnlyList<string!>! Audiences, System.Collections.Generic.IReadOnlyList<string!>! Resources) -> void
+NetOidc.Provider.Dcr.ClientMetadataValidationException
+NetOidc.Provider.Dcr.ClientMetadataValidationException.ClientMetadataValidationException(string! message) -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest
+NetOidc.Provider.Dcr.ClientRegistrationRequest.AuthorizationSignedResponseAlg.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.AuthorizationSignedResponseAlg.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.AuthorizationSigningAlgValuesSupported.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.AuthorizationSigningAlgValuesSupported.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.BackChannelLogoutSessionRequired.get -> bool?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.BackChannelLogoutSessionRequired.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.BackChannelLogoutUri.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.BackChannelLogoutUri.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.ClientName.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.ClientName.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.ClientRegistrationRequest() -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.ClientUri.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.ClientUri.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.Contacts.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.Contacts.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.GrantTypes.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.GrantTypes.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenEncryptedResponseAlg.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenEncryptedResponseAlg.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenEncryptedResponseEnc.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenEncryptedResponseEnc.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenEncryptionAlgValuesSupported.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenEncryptionAlgValuesSupported.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenEncryptionEncValuesSupported.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenEncryptionEncValuesSupported.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenSignedResponseAlg.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenSignedResponseAlg.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenSigningAlgValuesSupported.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.IdTokenSigningAlgValuesSupported.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.Jwks.get -> System.Text.Json.JsonElement?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.Jwks.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.JwksUri.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.JwksUri.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.LogoUri.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.LogoUri.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.PolicyUri.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.PolicyUri.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.PostLogoutRedirectUris.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.PostLogoutRedirectUris.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RedirectUris.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RedirectUris.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RequestObjectSigningAlg.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RequestObjectSigningAlg.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RequestObjectSigningAlgValuesSupported.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RequestObjectSigningAlgValuesSupported.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RequestUris.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RequestUris.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RequirePkce.get -> bool?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RequirePkce.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RequireSignedRequestObject.get -> bool?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.RequireSignedRequestObject.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.ResponseTypes.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.ResponseTypes.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.Scope.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.Scope.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.TokenEndpointAuthMethod.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.TokenEndpointAuthMethod.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.TokenEndpointAuthMethodsSupported.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.TokenEndpointAuthMethodsSupported.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.TosUri.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.TosUri.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoEncryptedResponseAlg.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoEncryptedResponseAlg.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoEncryptedResponseEnc.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoEncryptedResponseEnc.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoEncryptionAlgValuesSupported.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoEncryptionAlgValuesSupported.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoEncryptionEncValuesSupported.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoEncryptionEncValuesSupported.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoSignedResponseAlg.get -> string?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoSignedResponseAlg.init -> void
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoSigningAlgValuesSupported.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Dcr.ClientRegistrationRequest.UserInfoSigningAlgValuesSupported.init -> void
+NetOidc.Provider.Diagnostics.NetOidcHealthCheckExtensions
+NetOidc.Provider.Diagnostics.NetOidcTelemetry
+NetOidc.Provider.Errors.OAuthError
+NetOidc.Provider.Errors.OAuthError.Description.get -> string?
+NetOidc.Provider.Errors.OAuthError.Description.init -> void
+NetOidc.Provider.Errors.OAuthError.Error.get -> string!
+NetOidc.Provider.Errors.OAuthError.Error.init -> void
+NetOidc.Provider.Errors.OAuthError.OAuthError(string! Error, string? Description = null) -> void
+NetOidc.Provider.Http.EndpointRouteBuilderExtensions
+NetOidc.Provider.Http.NetOidcHttpClients
+NetOidc.Provider.Http.ServiceCollectionExtensions
+NetOidc.Provider.Interaction.ConsentService
+NetOidc.Provider.Interaction.ConsentService.ConsentService(NetOidc.Provider.Abstractions.Adapters.IAdapter<NetOidc.Provider.Abstractions.Models.Consent!>! consents) -> void
+NetOidc.Provider.Interaction.ConsentService.FindAsync(string! clientId, string! subject, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NetOidc.Provider.Abstractions.Models.Consent?>!
+NetOidc.Provider.Interaction.ConsentService.GrantAsync(string! clientId, string! subject, System.Collections.Generic.IEnumerable<string!>! scopes, System.TimeSpan? lifetime = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Interaction.ConsentService.RevokeAsync(string! clientId, string! subject, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Interaction.DefaultInteractionService
+NetOidc.Provider.Interaction.DefaultInteractionService.DefaultInteractionService(NetOidc.Provider.Interaction.ConsentService! consents) -> void
+NetOidc.Provider.Interaction.DefaultInteractionService.EvaluateAsync(NetOidc.Provider.Interaction.InteractionRequest! request, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NetOidc.Provider.Interaction.InteractionOutcome!>!
+NetOidc.Provider.Interaction.IInteractionService
+NetOidc.Provider.Interaction.IInteractionService.EvaluateAsync(NetOidc.Provider.Interaction.InteractionRequest! request, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NetOidc.Provider.Interaction.InteractionOutcome!>!
+NetOidc.Provider.Interaction.InteractionDenialService
+NetOidc.Provider.Interaction.InteractionDenialService.DenyAsync(string! returnUrl, string! error = "access_denied", string? description = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+NetOidc.Provider.Interaction.InteractionDenialService.InteractionDenialService(NetOidc.Provider.Abstractions.Adapters.IAdapter<NetOidc.Provider.Abstractions.Models.PendingInteraction!>! interactions, Microsoft.Extensions.Options.IOptions<NetOidc.Provider.Configuration.ProviderOptions!>! options) -> void
+NetOidc.Provider.Interaction.InteractionOutcome
+NetOidc.Provider.Interaction.InteractionOutcome.Acr.get -> string?
+NetOidc.Provider.Interaction.InteractionOutcome.Acr.init -> void
+NetOidc.Provider.Interaction.InteractionOutcome.Amr.get -> System.Collections.Generic.IReadOnlyList<string!>?
+NetOidc.Provider.Interaction.InteractionOutcome.Amr.init -> void
+NetOidc.Provider.Interaction.InteractionOutcome.AuthTime.get -> System.DateTimeOffset
+NetOidc.Provider.Interaction.InteractionOutcome.AuthTime.init -> void
+NetOidc.Provider.Interaction.InteractionOutcome.GrantedScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Interaction.InteractionOutcome.GrantedScopes.init -> void
+NetOidc.Provider.Interaction.InteractionOutcome.InteractionOutcome() -> void
+NetOidc.Provider.Interaction.InteractionOutcome.Kind.get -> NetOidc.Provider.Interaction.InteractionOutcomeKind
+NetOidc.Provider.Interaction.InteractionOutcome.Kind.init -> void
+NetOidc.Provider.Interaction.InteractionOutcome.Subject.get -> string?
+NetOidc.Provider.Interaction.InteractionOutcome.Subject.init -> void
+NetOidc.Provider.Interaction.InteractionOutcomeKind
+NetOidc.Provider.Interaction.InteractionOutcomeKind.AccountSelectionRequired = 3 -> NetOidc.Provider.Interaction.InteractionOutcomeKind
+NetOidc.Provider.Interaction.InteractionOutcomeKind.Completed = 0 -> NetOidc.Provider.Interaction.InteractionOutcomeKind
+NetOidc.Provider.Interaction.InteractionOutcomeKind.ConsentRequired = 2 -> NetOidc.Provider.Interaction.InteractionOutcomeKind
+NetOidc.Provider.Interaction.InteractionOutcomeKind.LoginRequired = 1 -> NetOidc.Provider.Interaction.InteractionOutcomeKind
+NetOidc.Provider.Interaction.InteractionRequest
+NetOidc.Provider.Interaction.InteractionRequest.AcrValues.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Interaction.InteractionRequest.AcrValues.init -> void
+NetOidc.Provider.Interaction.InteractionRequest.Client.get -> NetOidc.Provider.Abstractions.Models.Client!
+NetOidc.Provider.Interaction.InteractionRequest.Client.init -> void
+NetOidc.Provider.Interaction.InteractionRequest.HttpContext.get -> Microsoft.AspNetCore.Http.HttpContext!
+NetOidc.Provider.Interaction.InteractionRequest.HttpContext.init -> void
+NetOidc.Provider.Interaction.InteractionRequest.IdTokenHintSubject.get -> string?
+NetOidc.Provider.Interaction.InteractionRequest.IdTokenHintSubject.init -> void
+NetOidc.Provider.Interaction.InteractionRequest.InteractionRequest() -> void
+NetOidc.Provider.Interaction.InteractionRequest.LoginHint.get -> string?
+NetOidc.Provider.Interaction.InteractionRequest.LoginHint.init -> void
+NetOidc.Provider.Interaction.InteractionRequest.MaxAge.get -> int?
+NetOidc.Provider.Interaction.InteractionRequest.MaxAge.init -> void
+NetOidc.Provider.Interaction.InteractionRequest.Prompt.get -> System.Collections.Generic.IReadOnlySet<string!>!
+NetOidc.Provider.Interaction.InteractionRequest.Prompt.init -> void
+NetOidc.Provider.Interaction.InteractionRequest.RequestedScopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Interaction.InteractionRequest.RequestedScopes.init -> void
+NetOidc.Provider.Interaction.InteractionRequest.ResumedInteraction.get -> NetOidc.Provider.Abstractions.Models.PendingInteraction?
+NetOidc.Provider.Interaction.InteractionRequest.ResumedInteraction.init -> void
+NetOidc.Provider.Interaction.InteractionRequest.UiLocales.get -> string?
+NetOidc.Provider.Interaction.InteractionRequest.UiLocales.init -> void
+NetOidc.Provider.Jose.IKeyStore
+NetOidc.Provider.Jose.IKeyStore.GetKeys() -> System.Collections.Generic.IReadOnlyList<NetOidc.Provider.Jose.ProviderKey!>!
+NetOidc.Provider.Jose.ProviderKey
+NetOidc.Provider.Jose.ProviderKey.Algorithm.get -> string!
+NetOidc.Provider.Jose.ProviderKey.Algorithm.init -> void
+NetOidc.Provider.Jose.ProviderKey.ExplicitKeyId.get -> string?
+NetOidc.Provider.Jose.ProviderKey.ExplicitKeyId.init -> void
+NetOidc.Provider.Jose.ProviderKey.IsActive(System.DateTimeOffset now) -> bool
+NetOidc.Provider.Jose.ProviderKey.IsGenerated.get -> bool
+NetOidc.Provider.Jose.ProviderKey.IsGenerated.init -> void
+NetOidc.Provider.Jose.ProviderKey.IsPublished(System.DateTimeOffset now) -> bool
+NetOidc.Provider.Jose.ProviderKey.Key.get -> Microsoft.IdentityModel.Tokens.SecurityKey!
+NetOidc.Provider.Jose.ProviderKey.Key.init -> void
+NetOidc.Provider.Jose.ProviderKey.KeyId.get -> string!
+NetOidc.Provider.Jose.ProviderKey.NotAfter.get -> System.DateTimeOffset?
+NetOidc.Provider.Jose.ProviderKey.NotAfter.init -> void
+NetOidc.Provider.Jose.ProviderKey.NotBefore.get -> System.DateTimeOffset?
+NetOidc.Provider.Jose.ProviderKey.NotBefore.init -> void
+NetOidc.Provider.Jose.ProviderKey.ProviderKey() -> void
+NetOidc.Provider.Jose.ProviderKey.PublicJwk.get -> Microsoft.IdentityModel.Tokens.JsonWebKey?
+NetOidc.Provider.Jose.ProviderKey.PublicJwk.init -> void
+NetOidc.Provider.Jose.ProviderKey.Use.get -> NetOidc.Provider.Jose.ProviderKeyUse
+NetOidc.Provider.Jose.ProviderKey.Use.init -> void
+NetOidc.Provider.Jose.ProviderKeyUse
+NetOidc.Provider.Jose.ProviderKeyUse.Encryption = 1 -> NetOidc.Provider.Jose.ProviderKeyUse
+NetOidc.Provider.Jose.ProviderKeyUse.Federation = 2 -> NetOidc.Provider.Jose.ProviderKeyUse
+NetOidc.Provider.Jose.ProviderKeyUse.Signing = 0 -> NetOidc.Provider.Jose.ProviderKeyUse
+NetOidc.Provider.Session.SessionService
+NetOidc.Provider.Session.SessionService.EnsureSessionAsync(Microsoft.AspNetCore.Http.HttpContext! context, string! subject, string! clientId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<NetOidc.Provider.Abstractions.Models.Session?>!
+NetOidc.Provider.Session.SessionService.GetCurrentSessionAsync(Microsoft.AspNetCore.Http.HttpContext! context, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<NetOidc.Provider.Abstractions.Models.Session?>!
+NetOidc.Provider.Session.SessionService.GetSessionAsync(string! sessionId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<NetOidc.Provider.Abstractions.Models.Session?>!
+NetOidc.Provider.Session.SessionService.RemoveSessionAsync(string! sessionId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task!
+NetOidc.Provider.Session.SessionService.SessionService(Microsoft.Extensions.Options.IOptions<NetOidc.Provider.Configuration.ProviderOptions!>! options, NetOidc.Provider.Abstractions.Adapters.IAdapter<NetOidc.Provider.Abstractions.Models.Session!>! sessionStore) -> void
+NetOidc.Provider.Vci.CreatedCredentialOffer
+NetOidc.Provider.Vci.CreatedCredentialOffer.CreatedCredentialOffer(string! OfferUri, string! CredentialOfferUri, string! OfferJson, string? PreAuthorizedCode, string? TxCode) -> void
+NetOidc.Provider.Vci.CreatedCredentialOffer.CredentialOfferUri.get -> string!
+NetOidc.Provider.Vci.CreatedCredentialOffer.CredentialOfferUri.init -> void
+NetOidc.Provider.Vci.CreatedCredentialOffer.OfferJson.get -> string!
+NetOidc.Provider.Vci.CreatedCredentialOffer.OfferJson.init -> void
+NetOidc.Provider.Vci.CreatedCredentialOffer.OfferUri.get -> string!
+NetOidc.Provider.Vci.CreatedCredentialOffer.OfferUri.init -> void
+NetOidc.Provider.Vci.CreatedCredentialOffer.PreAuthorizedCode.get -> string?
+NetOidc.Provider.Vci.CreatedCredentialOffer.PreAuthorizedCode.init -> void
+NetOidc.Provider.Vci.CreatedCredentialOffer.TxCode.get -> string?
+NetOidc.Provider.Vci.CreatedCredentialOffer.TxCode.init -> void
+NetOidc.Provider.Vci.CredentialAuthorizationDetails
+NetOidc.Provider.Vci.CredentialConfiguration
+NetOidc.Provider.Vci.CredentialConfiguration.CredentialConfiguration() -> void
+NetOidc.Provider.Vci.CredentialConfiguration.CredentialSigningAlgValuesSupported.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Vci.CredentialConfiguration.CredentialSigningAlgValuesSupported.init -> void
+NetOidc.Provider.Vci.CredentialConfiguration.CryptographicBindingMethodsSupported.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Vci.CredentialConfiguration.CryptographicBindingMethodsSupported.init -> void
+NetOidc.Provider.Vci.CredentialConfiguration.Format.get -> string!
+NetOidc.Provider.Vci.CredentialConfiguration.Format.init -> void
+NetOidc.Provider.Vci.CredentialConfiguration.Id.get -> string!
+NetOidc.Provider.Vci.CredentialConfiguration.Id.init -> void
+NetOidc.Provider.Vci.CredentialConfiguration.ProofTypesSupported.get -> System.Collections.Generic.IReadOnlyDictionary<string!, System.Collections.Generic.IReadOnlyList<string!>!>!
+NetOidc.Provider.Vci.CredentialConfiguration.ProofTypesSupported.init -> void
+NetOidc.Provider.Vci.CredentialConfiguration.Scope.get -> string?
+NetOidc.Provider.Vci.CredentialConfiguration.Scope.init -> void
+NetOidc.Provider.Vci.CredentialConfiguration.Vct.get -> string?
+NetOidc.Provider.Vci.CredentialConfiguration.Vct.init -> void
+NetOidc.Provider.Vci.CredentialIssuanceRequest
+NetOidc.Provider.Vci.CredentialIssuanceRequest.ClientId.get -> string!
+NetOidc.Provider.Vci.CredentialIssuanceRequest.ClientId.init -> void
+NetOidc.Provider.Vci.CredentialIssuanceRequest.CredentialConfigurationId.get -> string!
+NetOidc.Provider.Vci.CredentialIssuanceRequest.CredentialConfigurationId.init -> void
+NetOidc.Provider.Vci.CredentialIssuanceRequest.CredentialIssuanceRequest(string! Subject, string! CredentialConfigurationId, string! ClientId, System.Collections.Generic.IReadOnlyList<string!>! Scopes, System.Collections.Generic.IReadOnlyList<string!>! HolderPublicJwks) -> void
+NetOidc.Provider.Vci.CredentialIssuanceRequest.HolderPublicJwks.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Vci.CredentialIssuanceRequest.HolderPublicJwks.init -> void
+NetOidc.Provider.Vci.CredentialIssuanceRequest.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Vci.CredentialIssuanceRequest.Scopes.init -> void
+NetOidc.Provider.Vci.CredentialIssuanceRequest.Subject.get -> string!
+NetOidc.Provider.Vci.CredentialIssuanceRequest.Subject.init -> void
+NetOidc.Provider.Vci.CredentialIssuanceResult
+NetOidc.Provider.Vci.CredentialIssuanceResult.Credentials.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Vci.CredentialIssuanceResult.IsDeferred.get -> bool
+NetOidc.Provider.Vci.CredentialIssuanceResult.RetryAfter.get -> System.TimeSpan?
+NetOidc.Provider.Vci.CredentialNotification
+NetOidc.Provider.Vci.CredentialNotification.ClientId.get -> string!
+NetOidc.Provider.Vci.CredentialNotification.ClientId.init -> void
+NetOidc.Provider.Vci.CredentialNotification.CredentialConfigurationId.get -> string!
+NetOidc.Provider.Vci.CredentialNotification.CredentialConfigurationId.init -> void
+NetOidc.Provider.Vci.CredentialNotification.CredentialNotification(string! NotificationId, string! Event, string? EventDescription, string! ClientId, string! Subject, string! CredentialConfigurationId) -> void
+NetOidc.Provider.Vci.CredentialNotification.Event.get -> string!
+NetOidc.Provider.Vci.CredentialNotification.Event.init -> void
+NetOidc.Provider.Vci.CredentialNotification.EventDescription.get -> string?
+NetOidc.Provider.Vci.CredentialNotification.EventDescription.init -> void
+NetOidc.Provider.Vci.CredentialNotification.NotificationId.get -> string!
+NetOidc.Provider.Vci.CredentialNotification.NotificationId.init -> void
+NetOidc.Provider.Vci.CredentialNotification.Subject.get -> string!
+NetOidc.Provider.Vci.CredentialNotification.Subject.init -> void
+NetOidc.Provider.Vci.CredentialOfferRequest
+NetOidc.Provider.Vci.CredentialOfferRequest.CredentialConfigurationIds.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NetOidc.Provider.Vci.CredentialOfferRequest.CredentialConfigurationIds.init -> void
+NetOidc.Provider.Vci.CredentialOfferRequest.CredentialOfferRequest() -> void
+NetOidc.Provider.Vci.CredentialOfferRequest.IncludeAuthorizationCodeGrant.get -> bool
+NetOidc.Provider.Vci.CredentialOfferRequest.IncludeAuthorizationCodeGrant.init -> void
+NetOidc.Provider.Vci.CredentialOfferRequest.IssuerState.get -> string?
+NetOidc.Provider.Vci.CredentialOfferRequest.IssuerState.init -> void
+NetOidc.Provider.Vci.CredentialOfferRequest.PreAuthorizedSubject.get -> string?
+NetOidc.Provider.Vci.CredentialOfferRequest.PreAuthorizedSubject.init -> void
+NetOidc.Provider.Vci.CredentialOfferRequest.TxCode.get -> NetOidc.Provider.Vci.TxCodeOptions?
+NetOidc.Provider.Vci.CredentialOfferRequest.TxCode.init -> void
+NetOidc.Provider.Vci.CredentialOfferService
+NetOidc.Provider.Vci.CredentialOfferService.CreateAsync(NetOidc.Provider.Vci.CredentialOfferRequest! request, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NetOidc.Provider.Vci.CreatedCredentialOffer!>!
+NetOidc.Provider.Vci.CredentialOfferService.CredentialOfferService(Microsoft.Extensions.Options.IOptions<NetOidc.Provider.Configuration.ProviderOptions!>! options, NetOidc.Provider.Abstractions.Adapters.IAdapter<NetOidc.Provider.Abstractions.Models.PreAuthorizedCode!>! codes, NetOidc.Provider.Abstractions.Adapters.IAdapter<NetOidc.Provider.Abstractions.Models.StoredCredentialOffer!>! offers) -> void
+NetOidc.Provider.Vci.CredentialOfferService.FindOfferAsync(string! offerId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<string?>!
+NetOidc.Provider.Vci.CredentialOfferService.RedeemAsync(string! code, string? txCode, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<(NetOidc.Provider.Abstractions.Models.PreAuthorizedCode? Code, NetOidc.Provider.Errors.OAuthError? Error)>!
+NetOidc.Provider.Vci.DeferredCredentialRequest
+NetOidc.Provider.Vci.DeferredCredentialRequest.DeferredCredentialRequest(string! TransactionId, NetOidc.Provider.Vci.CredentialIssuanceRequest! Request) -> void
+NetOidc.Provider.Vci.DeferredCredentialRequest.Request.get -> NetOidc.Provider.Vci.CredentialIssuanceRequest!
+NetOidc.Provider.Vci.DeferredCredentialRequest.Request.init -> void
+NetOidc.Provider.Vci.DeferredCredentialRequest.TransactionId.get -> string!
+NetOidc.Provider.Vci.DeferredCredentialRequest.TransactionId.init -> void
+NetOidc.Provider.Vci.TxCodeOptions
+NetOidc.Provider.Vci.TxCodeOptions.Description.get -> string?
+NetOidc.Provider.Vci.TxCodeOptions.Description.init -> void
+NetOidc.Provider.Vci.TxCodeOptions.InputMode.get -> string!
+NetOidc.Provider.Vci.TxCodeOptions.InputMode.init -> void
+NetOidc.Provider.Vci.TxCodeOptions.Length.get -> int
+NetOidc.Provider.Vci.TxCodeOptions.Length.init -> void
+NetOidc.Provider.Vci.TxCodeOptions.TxCodeOptions(int Length = 6, string! InputMode = "numeric", string? Description = null) -> void
+const NetOidc.Provider.Diagnostics.NetOidcTelemetry.Name = "NetOidc.Provider" -> string!
+const NetOidc.Provider.Http.NetOidcHttpClients.Trusted = "NetOidc.BackChannelLogout" -> string!
+const NetOidc.Provider.Http.NetOidcHttpClients.Untrusted = "NetOidc.BackChannelLogout.Untrusted" -> string!
+const NetOidc.Provider.Vci.CredentialAuthorizationDetails.Type = "openid_credential" -> string!
+const NetOidc.Provider.Vci.CredentialOfferService.AnonymousClientId = "urn:netoidc:vci:anonymous" -> string!
+const NetOidc.Provider.Vci.CredentialOfferService.PreAuthorizedCodeGrantType = "urn:ietf:params:oauth:grant-type:pre-authorized_code" -> string!
+static NetOidc.Provider.Diagnostics.NetOidcHealthCheckExtensions.AddNetOidcKeys(this Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder! builder, System.TimeSpan? warnBefore = null, string! name = "netoidc_keys") -> Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder!
+static NetOidc.Provider.Errors.OAuthError.AccessDenied(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.AccessDeniedCiba(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.AccountSelectionRequired(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.AuthorizationPending(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.ConsentRequired(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.ExpiredToken(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InsufficientScope(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InteractionRequired(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidAuthorizationDetails(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidBindingMessage(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidClient(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidClientMetadata(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidCredentialRequest(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidDPoPProof(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidEncryptionParameters(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidGrant(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidNonce(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidNotificationId(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidNotificationRequest(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidProof(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidRedirectUri(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidRequest(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidRequestObject(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidRequestUri(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidScope(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidTarget(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidToken(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidTokenType(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.InvalidTransactionId(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.LoginRequired(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.MissingUserCode(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.RequestNotSupported(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.RequestUriNotSupported(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.ServerError(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.SlowDown(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.UnauthorizedClient(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.UnknownCredentialConfiguration(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.UnknownCredentialIdentifier(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.UnknownUserId(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.UnsupportedGrantType(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.UnsupportedResponseType(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Errors.OAuthError.UseDPoPNonce(string? description = null) -> NetOidc.Provider.Errors.OAuthError!
+static NetOidc.Provider.Http.EndpointRouteBuilderExtensions.MapNetOidc(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints) -> Microsoft.AspNetCore.Routing.IEndpointRouteBuilder!
+static NetOidc.Provider.Http.ServiceCollectionExtensions.AddNetOidc(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<NetOidc.Provider.Configuration.ProviderOptions!>! configure) -> NetOidc.Provider.Configuration.NetOidcBuilder!
+static NetOidc.Provider.Interaction.InteractionOutcome.Requires(NetOidc.Provider.Interaction.InteractionOutcomeKind kind) -> NetOidc.Provider.Interaction.InteractionOutcome!
+static NetOidc.Provider.Vci.CredentialAuthorizationDetails.AuthorizedIdentifiers(string? authorizationDetailsJson) -> System.Collections.Generic.Dictionary<string!, string!>!
+static NetOidc.Provider.Vci.CredentialAuthorizationDetails.Build(System.Collections.Generic.IEnumerable<string!>! configurationIds) -> string!
+static NetOidc.Provider.Vci.CredentialAuthorizationDetails.ValidateAndEnrich(System.Text.Json.Nodes.JsonArray! details, NetOidc.Provider.Configuration.ProviderOptions! opts) -> string?
+static NetOidc.Provider.Vci.CredentialIssuanceResult.Deferred(System.TimeSpan retryAfter) -> NetOidc.Provider.Vci.CredentialIssuanceResult!
+static NetOidc.Provider.Vci.CredentialIssuanceResult.Issued(params string![]! credentials) -> NetOidc.Provider.Vci.CredentialIssuanceResult!
+static NetOidc.Provider.Vci.CredentialIssuanceResult.implicit operator NetOidc.Provider.Vci.CredentialIssuanceResult!(string! credential) -> NetOidc.Provider.Vci.CredentialIssuanceResult!
+static readonly NetOidc.Provider.Diagnostics.NetOidcTelemetry.ActivitySource -> System.Diagnostics.ActivitySource!
+static readonly NetOidc.Provider.Diagnostics.NetOidcTelemetry.Authorizations -> System.Diagnostics.Metrics.Counter<long>!
+static readonly NetOidc.Provider.Diagnostics.NetOidcTelemetry.ClientAuthenticationFailures -> System.Diagnostics.Metrics.Counter<long>!
+static readonly NetOidc.Provider.Diagnostics.NetOidcTelemetry.RequestDuration -> System.Diagnostics.Metrics.Histogram<double>!
+static readonly NetOidc.Provider.Diagnostics.NetOidcTelemetry.TokenRequestsFailed -> System.Diagnostics.Metrics.Counter<long>!
+static readonly NetOidc.Provider.Diagnostics.NetOidcTelemetry.TokensIssued -> System.Diagnostics.Metrics.Counter<long>!
