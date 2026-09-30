@@ -38,7 +38,7 @@ internal sealed class FapiProfileValidator : IValidateOptions<ProviderOptions>
                 break;
 
             case FapiProfile.FapiCiba:
-                ValidateFapi2Security(opts, errors);
+                // No authorization endpoint flow: PAR, code lifetime and iss rules do not apply.
                 ValidateFapiCiba(opts, errors);
                 break;
         }
@@ -129,5 +129,19 @@ internal sealed class FapiProfileValidator : IValidateOptions<ProviderOptions>
         if (!opts.CibaEnabled)
             errors.Add(
                 "[FAPI-CIBA] CibaEnabled must be true");
+
+        if (!opts.DPoPEnabled && !opts.MtlsEnabled)
+            errors.Add("[FAPI-CIBA §5.2.2] access tokens must be sender-constrained: enable MtlsEnabled or DPoPEnabled");
+
+        foreach (var client in opts.StaticClients)
+        {
+            if (!Array.Exists(Fapi2AllowedAuthMethods, m => m == client.TokenEndpointAuthMethod))
+                errors.Add(
+                    $"[FAPI-CIBA §5.2.2] client '{client.ClientId}' uses auth method " +
+                    $"'{client.TokenEndpointAuthMethod}' which is not allowed " +
+                    "(must be private_key_jwt, tls_client_auth or self_signed_tls_client_auth)");
+            if (client.CibaDeliveryMode == "push")
+                errors.Add($"[FAPI-CIBA §5.2.2] client '{client.ClientId}' uses the push delivery mode, which is not allowed");
+        }
     }
 }

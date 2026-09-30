@@ -14,10 +14,14 @@ namespace NetOidc.Provider.Http;
 /// <item>A form body that cannot be decoded is an <c>invalid_request</c>, not a server error.</item>
 /// <item>Parameters must not be repeated (RFC 6749 §3.1, §3.2), except <c>resource</c>
 /// (RFC 8707) and <c>audience</c> (RFC 8693).</item>
+/// <item>Under a FAPI profile, <c>x-fapi-interaction-id</c> is echoed (or a new one issued),
+/// as FAPI 1.0 Part 1 §6.2.1 requires of resource endpoints such as UserInfo.</item>
 /// </list>
 /// </summary>
 internal static class ProtocolRequestFilter
 {
+    private const string FapiInteractionIdHeader = "x-fapi-interaction-id";
+
     private static readonly HashSet<string> RepeatableParameters = new(StringComparer.Ordinal) { "resource", "audience" };
 
     public static async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext ctx, EndpointFilterDelegate next)
@@ -39,6 +43,13 @@ internal static class ProtocolRequestFilter
                 }
                 return Task.CompletedTask;
             }, http.Response);
+        }
+
+        if (options.FapiProfile != FapiProfile.None)
+        {
+            var requested = http.Request.Headers[FapiInteractionIdHeader].ToString();
+            http.Response.Headers[FapiInteractionIdHeader] =
+                Guid.TryParse(requested, out _) ? requested : Guid.NewGuid().ToString();
         }
 
         var error = await ValidateParametersAsync(http.Request);

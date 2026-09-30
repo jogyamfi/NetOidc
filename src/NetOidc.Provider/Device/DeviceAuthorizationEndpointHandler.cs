@@ -95,7 +95,7 @@ internal sealed class DeviceAuthorizationEndpointHandler
 
         await _deviceCodeStore.StoreAsync(
             deviceCodeValue, deviceCode,
-            TimeSpan.FromSeconds(opts.DeviceCodeLifetimeSeconds), ct);
+            Token.ExpiredRecords.TimeToLive(deviceCode.ExpiresAt), ct);
 
         // Also index by user_code for the verification endpoint lookup
         await _deviceCodeStore.StoreAsync(

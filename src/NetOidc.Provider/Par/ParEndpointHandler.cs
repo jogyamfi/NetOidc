@@ -127,6 +127,11 @@ internal sealed class ParEndpointHandler
         var responseType = paramsDict.GetValueOrDefault("response_type");
         if (string.IsNullOrEmpty(responseType))
             return ParError(OAuthError.InvalidRequest("response_type is required"), 400);
+        var normalizedResponseType = Authorization.AuthorizationEndpointHandler.NormalizeResponseType(responseType);
+        if (!Discovery.DiscoveryService.ResponseTypesFor(opts).Contains(normalizedResponseType))
+            return ParError(OAuthError.UnsupportedResponseType($"Unsupported response_type: {responseType}"), 400);
+        if (!client.ResponseTypes.Any(rt => Authorization.AuthorizationEndpointHandler.NormalizeResponseType(rt) == normalizedResponseType))
+            return ParError(OAuthError.UnauthorizedClient($"client may not use response_type '{responseType}'"), 400);
 
         var redirectUri = paramsDict.GetValueOrDefault("redirect_uri");
         if (string.IsNullOrEmpty(redirectUri) && client.RedirectUris.Count != 1)

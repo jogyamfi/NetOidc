@@ -76,8 +76,14 @@ trap cleanup EXIT
 LOCAL_OP="https://localhost:${OP_URL##*:}"
 for _ in $(seq 1 60); do
   curl -sfk "$LOCAL_OP/.well-known/openid-configuration" >/dev/null && break
+  kill -0 "$OP_PID" 2>/dev/null || break
   sleep 1
 done
+if ! curl -sfk "$LOCAL_OP/.well-known/openid-configuration" >/dev/null; then
+  echo "The conformance host did not start; last lines of its log:" >&2
+  tail -20 "$RESULTS_DIR/op-$PROFILE.log" >&2
+  exit 1
+fi
 
 # ── Plans ────────────────────────────────────────────────────────────────────
 if [ $# -gt 0 ]; then
@@ -92,9 +98,13 @@ while IFS= read -r entry; do
   ARGS+=("${entry%%:*}" "${entry##*:}")
 done <<< "$SELECTED"
 
+# Known, explained deviations per profile (docs/CONFORMANCE.md). The suite also fails a run when a
+# listed item does not occur, so they apply only to a full profile run.
+EXPECTED=()
+if [ $# -eq 0 ] && [ -f "$HERE/expected-failures-$PROFILE.json" ]; then
+  EXPECTED=(--expected-failures-file "$HERE/expected-failures-$PROFILE.json")
+fi
+
 cd "$SUITE_DIR/scripts"
 CONFORMANCE_SERVER="$SUITE_URL/" CONFORMANCE_DEV_MODE=1 PYTHONIOENCODING=utf-8 \
-  "$PYTHON" run-test-plan.py --export-dir "$RESULTS_DIR" \
-    --expected-failures-file "$HERE/expected-failures.json" \
-    --expected-skips-file "$HERE/expected-skips.json" \
-    "${ARGS[@]}"
+  "$PYTHON" run-test-plan.py --export-dir "$RESULTS_DIR" "${EXPECTED[@]}" "${ARGS[@]}"

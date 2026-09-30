@@ -54,6 +54,23 @@ Found by running the OpenID Foundation conformance suite against NetOidc:
 - An RP-initiated logout without a `post_logout_redirect_uri` shows a signed-out page instead of an
   empty 204 response.
 - `DcrAllowPrivateNetworkUris` now also covers `jwks_uri` and `request_uri` fetches.
+- Authorization error responses carry `iss` (RFC 9207 §2) and are JARM-wrapped when the request
+  asked for a `jwt` response mode.
+- Expired device codes and CIBA requests return `expired_token` (RFC 8628 §3.5, CIBA Core §11)
+  instead of `invalid_grant`.
+- DPoP authorization-code binding (RFC 9449 §10): `dpop_jkt`, or a DPoP proof sent to PAR, binds
+  the code to that key.
+- FAPI 1.0 Advanced only issues sender-constrained tokens; PAR rejects response types the profile
+  or client does not allow; request objects must not contain `request`/`request_uri`; a missing
+  `scope` under FAPI is `invalid_request`.
+- Under FAPI, `x-fapi-interaction-id` is echoed (or issued) on every protocol response.
+- The FAPI-CIBA profile validator no longer demands PAR (a valid FAPI-CIBA provider failed to start).
+- New `InteractionDenialService`: the host's login or consent page reports that the End-User
+  cancelled, and the client receives `access_denied` (OIDC Core §3.1.2.6).
+- Error bodies omit a null `error_description`; a missing `code_verifier` is `invalid_grant`.
+- Request objects without `exp` are accepted outside FAPI (OIDC Core §6.1).
+- The front-channel logout page continues to the relying party without JavaScript.
+- `NetOidcHttpClients` exposes the names of the outbound HTTP clients for host configuration.
 - All protocol responses carry `Cache-Control: no-store` and `Pragma: no-cache` (RFC 6749 §5.1),
   except the public metadata documents.
 - Repeated request parameters are rejected with `invalid_request` (RFC 6749 §3.1), except
@@ -80,6 +97,9 @@ Found by running the OpenID Foundation conformance suite against NetOidc:
 - Dynamic registration responses for clients registered with a `jwks_uri` return `jwks_uri`, not
   the fetched `jwks`.
 - RP-initiated logout without a redirect URI returns 200 with a signed-out page (was 204).
+- Response types a FAPI profile does not allow return `unsupported_response_type` (was
+  `unauthorized_client` or `invalid_request`).
+- Under FAPI 1.0 Advanced a token request without a client certificate (or DPoP proof) fails.
 
 - **The public API is reduced to the supported surface.** Endpoint handlers and internal services
   are now `internal`: `*EndpointHandler`, `AccessTokenService`, `BackChannelLogoutService`,

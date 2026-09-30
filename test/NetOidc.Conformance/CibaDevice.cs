@@ -13,7 +13,8 @@ internal static class CibaDevice
 
     public static void ApproveLater(string authReqId) => _ = Task.Run(async () =>
     {
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        // Long enough for the client to see authorization_pending on its first poll.
+        await Task.Delay(TimeSpan.FromSeconds(10));
         if (Services?.GetService(typeof(ICibaService)) is ICibaService ciba)
             await ciba.CompleteAsync(authReqId, approve: true, subject: ConformanceUser.Subject);
     });

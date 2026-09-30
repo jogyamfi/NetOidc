@@ -138,7 +138,7 @@ internal sealed class DeviceVerificationEndpointHandler
         var remaining = deviceCode.ExpiresAt - DateTimeOffset.UtcNow;
         if (remaining > TimeSpan.Zero)
         {
-            await _deviceCodeStore.StoreAsync(deviceCode.DeviceCodeValue, deviceCode, remaining, ct);
+            await _deviceCodeStore.StoreAsync(deviceCode.DeviceCodeValue, deviceCode, Token.ExpiredRecords.TimeToLive(deviceCode.ExpiresAt), ct);
             await _deviceCodeStore.StoreAsync(key, deviceCode, remaining, ct);
         }
 

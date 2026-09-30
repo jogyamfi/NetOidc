@@ -169,6 +169,10 @@ internal sealed class RequestObjectValidator
         if (fapi && FapiLifetimeError(headerJwt) is { } lifetimeError)
             return (null, lifetimeError);
 
+        // RFC 9101 §4: a request object must not itself contain request or request_uri.
+        if (result.Claims.ContainsKey("request") || result.Claims.ContainsKey("request_uri"))
+            return (null, "a request object must not contain request or request_uri");
+
         return ((IReadOnlyDictionary<string, object>)result.Claims, null);
     }
 

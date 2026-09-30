@@ -236,6 +236,9 @@ internal sealed class AuthorizationEndpointHandler
         IResult Fail(OAuthError error) => SendError(redirectUri, state, baseMode, error, useJarm ? client : null);
 
         // ── Scopes ────────────────────────────────────────────────────────────
+        // FAPI profiles need openid or an explicit scope: a request without one is malformed.
+        if (string.IsNullOrWhiteSpace(scope) && opts.FapiProfile != FapiProfile.None)
+            return Fail(OAuthError.InvalidRequest("scope is required"));
         var requestedScopes = scope.Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct().ToList();
 
         var registeredScopes = opts.Scopes.Select(s => s.Name).ToHashSet();
@@ -805,14 +808,17 @@ internal sealed class AuthorizationEndpointHandler
     /// default for the <c>response_type</c> — fragment whenever tokens would be returned
     /// (OAuth 2.0 Multiple Response Types §5), query for <c>code</c>.
     /// </summary>
-    private static string? ErrorResponseMode(IReadOnlyDictionary<string, string> parameters)
+    private string? ErrorResponseMode(IReadOnlyDictionary<string, string> parameters)
     {
         var mode = GetParam(parameters, "response_mode");
         if (mode.EndsWith(".jwt", StringComparison.Ordinal))
             mode = mode[..^4];
         if (mode is "query" or "fragment" or "form_post")
             return mode;
-        return NormalizeResponseType(GetParam(parameters, "response_type")) is "" or "code" or "none"
+        // A response type the server does not support has no default mode of its own.
+        var responseType = NormalizeResponseType(GetParam(parameters, "response_type"));
+        return responseType is "" or "code" or "none" ||
+               !Discovery.DiscoveryService.ResponseTypesFor(_options.Value).Contains(responseType)
             ? null
             : "fragment";
     }

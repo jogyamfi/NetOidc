@@ -113,6 +113,7 @@ public sealed class SecurityReviewTests
     private static TestWebApp CreateFapi1App(RSA rsa) => TestWebApp.Create(o =>
     {
         o.FapiProfile = FapiProfile.Fapi1Advanced;
+        o.DPoPEnabled = true;
         o.PushedAuthorizationEnabled = true;
         o.JarEnabled = true;
         o.JarmEnabled = true;
@@ -208,18 +209,68 @@ public sealed class SecurityReviewTests
     public async Task Fapi_ClientAssertions_MustNotUseRs256()
     {
         using var rsa = RSA.Create(2048);
+        using var dpopKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         await using var app = CreateFapi1App(rsa);
 
+        // FAPI tokens are sender-constrained, so each request carries a DPoP proof.
         Task<HttpResponseMessage> GrantAsync(string alg) => Oidc.TokenAsync(app,
         [
             new("grant_type", "client_credentials"),
             new("scope", "profile"),
             new("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"),
             new("client_assertion", ClientAssertion(rsa, alg)),
-        ]);
+        ], dpop: DPoPProof(dpopKey));
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await GrantAsync(SecurityAlgorithms.RsaSha256)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await GrantAsync(SecurityAlgorithms.RsaSsaPssSha256)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Fapi1_RequiresSenderConstrainedTokens()
+    {
+        using var rsa = RSA.Create(2048);
+        await using var app = CreateFapi1App(rsa);
+
+        // FAPI 1.0 Advanced §5.2.2-5: no unbound tokens (no client certificate, no DPoP).
+        var resp = await Oidc.TokenAsync(app,
+        [
+            new("grant_type", "client_credentials"), new("scope", "profile"),
+            new("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"),
+            new("client_assertion", ClientAssertion(rsa, SecurityAlgorithms.RsaSsaPssSha256)),
+        ]);
+
+        await Oidc.AssertErrorAsync(resp, HttpStatusCode.BadRequest, "invalid_request");
+    }
+
+    [Fact]
+    public async Task RequestObject_ContainingRequestUri_IsRejected()
+    {
+        using var rsa = RSA.Create(2048);
+        await using var app = CreateFapi1App(rsa);
+        var nested = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = "pkjwt",
+            Audience = Issuer,
+            NotBefore = DateTime.UtcNow,
+            Expires = DateTime.UtcNow.AddMinutes(10),
+            Claims = new Dictionary<string, object>
+            {
+                ["client_id"] = "pkjwt", ["response_type"] = "code", ["scope"] = "openid", ["redirect_uri"] = Oidc.Callback,
+                ["code_challenge"] = Oidc.Challenge, ["code_challenge_method"] = "S256",
+                ["request_uri"] = "urn:ietf:params:oauth:request_uri:nested",
+            },
+            SigningCredentials = new SigningCredentials(new RsaSecurityKey(rsa), SecurityAlgorithms.RsaSsaPssSha256),
+        });
+
+        var resp = await app.Client.PostAsync("/connect/par", new FormUrlEncodedContent(
+        [
+            new("client_id", "pkjwt"),
+            new("request", nested),
+            new("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"),
+            new("client_assertion", ClientAssertion(rsa, SecurityAlgorithms.RsaSsaPssSha256)),
+        ]));
+
+        await Oidc.AssertErrorAsync(resp, HttpStatusCode.BadRequest, "invalid_request_object");
     }
 
     [Fact]

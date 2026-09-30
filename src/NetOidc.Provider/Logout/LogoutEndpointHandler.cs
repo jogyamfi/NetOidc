@@ -208,18 +208,19 @@ internal sealed class LogoutEndpointHandler
         var next = target is null
             ? "<p>You have been signed out.</p>"
             : $"""<p>Signing you out… <a id="continue" href="{enc.Encode(target)}">Continue</a></p>""";
-        var script = target is null
+        // Continue after the iframes have had time to load (no JavaScript needed, and only one
+        // navigation: a second one would reach the relying party twice).
+        var refresh = target is null
             ? string.Empty
-            : $$"""<script>window.addEventListener("load", function () { setTimeout(function () { window.location.href = {{System.Text.Json.JsonSerializer.Serialize(target)}}; }, 1000); });</script>""";
+            : $"""<meta http-equiv="refresh" content="2;url={enc.Encode(target)}" />""";
 
         return $"""
             <!DOCTYPE html>
             <html>
-              <head><title>Signed out</title></head>
+              <head><title>Signed out</title>{refresh}</head>
               <body>
                 {next}
                 {frames}
-                {script}
               </body>
             </html>
             """;

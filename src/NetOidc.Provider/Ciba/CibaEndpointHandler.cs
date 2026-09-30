@@ -185,7 +185,7 @@ internal sealed class CibaEndpointHandler
             ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(lifetime),
         };
 
-        await _cibaStore.StoreAsync(authReqId, authRequest, TimeSpan.FromSeconds(lifetime), ct);
+        await _cibaStore.StoreAsync(authReqId, authRequest, Token.ExpiredRecords.TimeToLive(authRequest.ExpiresAt), ct);
 
         // Out-of-band authentication outlives this HTTP request, so it must not use its
         // cancellation token; failures are logged rather than lost.

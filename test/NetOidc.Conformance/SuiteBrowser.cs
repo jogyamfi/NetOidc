@@ -75,6 +75,22 @@ internal static class SuiteBrowser
         };
     }
 
+    /// <summary>The OP refuses to redirect back: its error page or the confirmation page is captured.</summary>
+    private static JsonObject LogoutRefused(ConformanceSettings s) => new()
+    {
+        ["browser"] = new JsonArray(
+            Authorize(s)[0]!.DeepClone(),
+            new JsonObject
+            {
+                ["match"] = s.Op("/connect/end_session*"),
+                ["tasks"] = new JsonArray(
+                    Task("Confirmation page", s.Op("/account/logout*"), true,
+                        Command("wait", "xpath", "//*", 10, "Sign out", "update-image-placeholder")),
+                    Task("Error page", s.Op("/connect/end_session*"), true,
+                        Command("wait", "xpath", "//*", 10, "NetOidc error", "update-image-placeholder"))),
+            }),
+    };
+
     /// <summary>The logout ends on the OP's own page; the suite wants a screenshot of it.</summary>
     private static JsonObject LogoutPage(ConformanceSettings s, string expectedText) => new()
     {
@@ -126,6 +142,10 @@ internal static class SuiteBrowser
             ["fapi1-advanced-final-par-ensure-reused-request-uri-prior-to-auth-completion-succeeds"] = ReusedRequestUri(),
             ["fapi2-security-profile-final-user-rejects-authentication"] = Rejects(),
             ["fapi1-advanced-final-user-rejects-authentication"] = Rejects(),
+            // Without a usable redirect URI the OP shows its own error page.
+            ["fapi1-advanced-final-ensure-registered-redirect-uri"] = ErrorPage(s, "/connect/authorize*"),
+            ["fapi1-advanced-final-ensure-redirect-uri-in-authorization-request"] = ErrorPage(s, "/connect/authorize*"),
+            ["fapi1-advanced-final-ensure-request-object-without-redirect-uri-fails"] = ErrorPage(s, "/connect/authorize*"),
         };
     }
 
@@ -148,18 +168,24 @@ internal static class SuiteBrowser
                  })
             overrides[test] = ErrorPage(s, "/connect/authorize*");
 
-        // RP-Initiated Logout tests that end on the OP rather than at the relying party.
+        // RP-Initiated Logout: the OP must not redirect back; it shows an error page or asks the
+        // End-User to confirm. Screenshot whichever appears (without confirming).
         foreach (var test in new[]
                  {
+                     "oidcc-rp-initiated-logout-bad-id-token-hint",
                      "oidcc-rp-initiated-logout-bad-post-logout-redirect-uri",
-                     "oidcc-rp-initiated-logout-query-added-to-post-logout-redirect-uri",
                      "oidcc-rp-initiated-logout-modified-id-token-hint",
+                     "oidcc-rp-initiated-logout-no-id-token-hint",
+                     "oidcc-rp-initiated-logout-query-added-to-post-logout-redirect-uri",
                  })
-            overrides[test] = ErrorPage(s, "/connect/end_session*", signInFirst: true);
+            overrides[test] = LogoutRefused(s);
+
+        // RP-Initiated Logout without a redirect: the End-User confirms and sees "signed out".
         foreach (var test in new[]
                  {
                      "oidcc-rp-initiated-logout-no-post-logout-redirect-uri",
                      "oidcc-rp-initiated-logout-no-params",
+                     "oidcc-rp-initiated-logout-only-state",
                  })
             overrides[test] = LogoutPage(s, "signed out");
         return overrides;

@@ -135,6 +135,68 @@ public sealed class ConformanceSuiteFindingsTests
         Assert.NotNull(Oidc.ResponseParams(resp)["code"]);
     }
 
+    // ── Expired device codes and CIBA requests (RFC 8628 §3.5, CIBA Core §11) ──
+
+    [Fact]
+    public async Task ExpiredCibaRequest_IsExpiredToken()
+    {
+        await using var app = TestWebApp.Create(o =>
+        {
+            o.CibaEnabled = true;
+            o.CibaPollingIntervalSeconds = 0;
+        });
+        var start = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/ciba")
+        {
+            Headers = { Authorization = Oidc.Basic("ciba-client", "ciba-secret") },
+            Content = new FormUrlEncodedContent([new("scope", "openid"), new("login_hint", "alice"), new("requested_expiry", "1")]),
+        });
+        var authReqId = JsonDocument.Parse(await start.Content.ReadAsStringAsync()).RootElement.GetProperty("auth_req_id").GetString()!;
+        await Task.Delay(1500);
+
+        var resp = await Oidc.TokenAsync(app,
+            [new("grant_type", "urn:openid:params:grant-type:ciba"), new("auth_req_id", authReqId)], ("ciba-client", "ciba-secret"));
+
+        await Oidc.AssertErrorAsync(resp, HttpStatusCode.BadRequest, "expired_token");
+    }
+
+    [Fact]
+    public async Task ExpiredDeviceCode_IsExpiredToken()
+    {
+        await using var app = TestWebApp.Create(o =>
+        {
+            o.DeviceFlowEnabled = true;
+            o.DeviceCodeLifetimeSeconds = 1;
+            o.DevicePollingIntervalSeconds = 0;
+        });
+        var start = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/device_authorization")
+        {
+            Headers = { Authorization = Oidc.Basic("device-client", "device-secret") },
+            Content = new FormUrlEncodedContent([new("scope", "openid")]),
+        });
+        var deviceCode = JsonDocument.Parse(await start.Content.ReadAsStringAsync()).RootElement.GetProperty("device_code").GetString()!;
+        await Task.Delay(1500);
+
+        var resp = await Oidc.TokenAsync(app,
+            [new("grant_type", "urn:ietf:params:oauth:grant-type:device_code"), new("device_code", deviceCode)], ("device-client", "device-secret"));
+
+        await Oidc.AssertErrorAsync(resp, HttpStatusCode.BadRequest, "expired_token");
+    }
+
+    [Fact]
+    public async Task Fapi_EchoesTheInteractionId()
+    {
+        await using var app = TestWebApp.Create(o => o.FapiProfile = FapiProfile.Fapi1Advanced);
+        var id = Guid.NewGuid().ToString();
+        var request = new HttpRequestMessage(HttpMethod.Get, "/connect/userinfo");
+        request.Headers.Add("x-fapi-interaction-id", id);
+
+        var echoed = await app.Client.SendAsync(request);
+        var generated = await app.Client.GetAsync("/connect/userinfo");
+
+        Assert.Equal(id, echoed.Headers.GetValues("x-fapi-interaction-id").Single());
+        Assert.True(Guid.TryParse(generated.Headers.GetValues("x-fapi-interaction-id").Single(), out _));
+    }
+
     // ── FAPI 2.0 suite findings ────────────────────────────────────────────
 
     [Fact]
@@ -147,6 +209,59 @@ public sealed class ConformanceSuiteFindingsTests
         Assert.Equal("invalid_client", body.GetProperty("error").GetString());
         // RFC 6749 §5.2: a string when present, never null.
         Assert.False(body.TryGetProperty("error_description", out _));
+    }
+
+    [Fact]
+    public async Task AuthorizationErrors_CarryTheIssuer()
+    {
+        // RFC 9207 §2: iss is part of every authorization response, errors included.
+        await using var app = TestWebApp.Create();
+        await Oidc.SignInAsync(app, "alice");
+
+        var resp = await Oidc.AuthorizeAsync(app, ("client_id", "test-client"), ("response_type", "code"),
+            ("scope", "openid unknown-scope"), ("redirect_uri", Oidc.Callback));
+
+        var response = Oidc.ResponseParams(resp);
+        Assert.Equal("invalid_scope", response["error"]);
+        Assert.Equal("https://auth.test.example.com", response["iss"]);
+    }
+
+    [Fact]
+    public async Task UnsupportedResponseType_WithJarm_IsSignedInTheQuery()
+    {
+        await using var app = TestWebApp.Create(o => o.JarmEnabled = true);
+        await Oidc.SignInAsync(app, "alice");
+
+        // An unsupported response type has no default mode of its own: the JARM error goes where
+        // the server's default (code) puts it, the query.
+        var resp = await Oidc.AuthorizeAsync(app, ("client_id", "test-client"), ("response_type", "bogus"),
+            ("scope", "openid"), ("state", "s5"), ("redirect_uri", Oidc.Callback), ("response_mode", "jwt"));
+
+        var location = resp.Headers.Location!;
+        Assert.Empty(location.Fragment);
+        var jarm = Oidc.Jwt(Oidc.ResponseParams(resp)["response"]!);
+        Assert.Equal("unsupported_response_type", jarm.GetClaim("error").Value);
+        Assert.Equal("s5", jarm.GetClaim("state").Value);
+    }
+
+    [Fact]
+    public async Task Par_RejectsUnsupportedOrUnregisteredResponseTypes()
+    {
+        // RFC 9126 §2.1: the pushed request is validated as at the authorization endpoint.
+        await using var app = TestWebApp.Create(o => o.PushedAuthorizationEnabled = true);
+
+        Task<HttpResponseMessage> PushAsync(string responseType) =>
+            app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/connect/par")
+            {
+                Headers = { Authorization = Oidc.Basic("par-client", "par-secret") },
+                Content = new FormUrlEncodedContent(
+                [
+                    new("response_type", responseType), new("scope", "openid"), new("nonce", "n"), new("redirect_uri", Oidc.Callback),
+                ]),
+            });
+
+        await Oidc.AssertErrorAsync(await PushAsync("bogus"), HttpStatusCode.BadRequest, "unsupported_response_type");
+        await Oidc.AssertErrorAsync(await PushAsync("code id_token"), HttpStatusCode.BadRequest, "unauthorized_client");
     }
 
     [Fact]
